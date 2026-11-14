@@ -404,3 +404,18 @@ test('audit path expansion honors DSH_HOME', () => {
 	const blank = (configured, env = { DSH_HOME: '  ' }) => resolveDshHome(configured, env)
 	assert.match(expandPath('', blank), /[\\/]\.dsh[\\/]rule-guard-audit\.jsonl$/)
 })
+
+test('a non-string audit path falls back instead of throwing', () => {
+	// The schema says `auditPath` is a string, but a hand-edited profile layer
+	// can put something else there. `apply` builds its `AuditLog` at load
+	// time, so a throw here would take the whole plugin down, not one field.
+	const home = (configured, env = { DSH_HOME: 'C:/dsh-home' }) => resolveDshHome(configured, env)
+	for (const bad of [42, true, {}, ['C:/log.jsonl'], null, undefined]) {
+		assert.doesNotThrow(() => expandPath(bad, home), `expandPath threw for ${JSON.stringify(bad)}`)
+		assert.match(
+			expandPath(bad, home).replace(/\\/g, '/'),
+			/^C:\/dsh-home\/rule-guard-audit\.jsonl$/,
+			`a non-string audit path did not fall back: ${JSON.stringify(bad)}`,
+		)
+	}
+})
