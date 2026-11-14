@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
@@ -60,8 +60,9 @@ const schemaFields = schema().order
 /** The field list `client.js` declares for the card. */
 const cardFields = [...client.matchAll(/^\t\t\t'([A-Za-z]+)',?$/gm)].map((match) => match[1])
 
-test('the Host schema declares ten fields', () => {
+test('the Host schema declares twelve fields', () => {
 	assert.deepEqual(schemaFields, [
+		'global',
 		'tools',
 		'dialect',
 		'onUnsupported',
@@ -72,6 +73,7 @@ test('the Host schema declares ten fields', () => {
 		'maxCommandLength',
 		'audit',
 		'auditPath',
+		'disabledRules',
 	])
 })
 
@@ -87,16 +89,24 @@ test('every schema field carries the default the card assumes', () => {
 	assert.equal(fields.maxCommandLength.default, 10000)
 	assert.equal(fields.audit.default, true)
 	assert.equal(fields.auditPath.default, '')
+	assert.deepEqual(fields.disabledRules.default, [])
+	// The top-level switch defaults to off, which is what keeps an existing
+	// preset behaving exactly as it did before this field existed.
+	assert.equal(fields.global.default, false)
 	// A volatile field is what lets a saved value reach the next command
 	// without restarting the plugin; the card's promise depends on it.
 	assert.equal(fields.dialect.type, 'union')
 	assert.equal(fields.audit.type, 'boolean')
+	assert.equal(fields.global.type, 'boolean')
+	assert.equal(fields.disabledRules.type, 'array')
 })
 
 test('the card renders every Config field', () => {
 	// The card's own field list is the source of truth for the projection
 	// loop; it must cover the schema exactly, or a field is unconfigurable.
-	assert.deepEqual(cardFields, schemaFields)
+	// Compared as sets: the card renders the fields in the order that reads
+	// best, which is not the order the schema declares them in.
+	assert.deepEqual([...cardFields].sort(), [...schemaFields].sort())
 })
 
 test('the card renders no field the schema lacks', () => {
@@ -136,16 +146,18 @@ test('the two halves agree on the row identity', () => {
 test('the card stages every field through the form model', () => {
 	// Each editable field needs a spec, or `form.field(name)` throws.
 	for (const field of schemaFields) {
-		if (field === 'audit') continue
+		if (field === 'global' || field === 'audit') continue
 		assert.ok(
 			client.includes(`settingsTextField('${field}')`) || client.includes(`settingsNumberField('${field}')`),
 			`client.js declares no field spec for "${field}"`,
 		)
 	}
-	// The boolean rides the form as a text field so it can be staged at all,
-	// and the switch reads its position from the scope snapshot.
-	assert.ok(client.includes("primitives.settingsTextField('audit')"))
-	assert.ok(client.includes('scopeValue(this.scope, AUDIT_FIELD)'))
+	// Both booleans ride the form as text fields so they can be staged at all,
+	// and each switch reads its position from the scope snapshot.
+	for (const field of ['global', 'audit']) {
+		assert.ok(client.includes(`primitives.settingsTextField('${field}')`), `no spec for "${field}"`)
+	}
+	assert.match(client, /scopeValue\(this\.scope, field\)/)
 })
 
 test('the length cap bounds match the Host schema', () => {
@@ -154,20 +166,113 @@ test('the length cap bounds match the Host schema', () => {
 	assert.equal(client.match(/const MAX_COMMAND_LENGTH = (\d+)/)?.[1], String(field.max))
 })
 
-test('the projection key for the switch is not a Config field name', () => {
+test('the projection keys for the switches are not Config field names', () => {
 	// `projection()` fills `state[field]` for every Config field, so a
 	// projection key that collides with a field name is overwritten by the
-	// form's `{text, overridden, invalid}` object. The audit switch's boolean
-	// would then render permanently on.
-	const projection = client.slice(client.indexOf('projection() {'), client.indexOf('projection() {') + 400)
+	// form's `{text, overridden, invalid}` object. A switch reading that key
+	// would then render in a fixed position.
+	const start = client.indexOf('projection() {')
+	const projection = client.slice(start, client.indexOf('\r\n\t\t\t}\r\n', start))
 	const keys = [...projection.matchAll(/^\t{5}(\w+): /gm)].map((match) => match[1])
-	assert.deepEqual(keys, ['defaults', 'auditOn'])
+	assert.deepEqual(keys, ['defaults', 'globalOn', 'auditOn', 'rulesOpen', 'patternsOpen'])
 	for (const key of keys) {
 		assert.ok(!schemaFields.includes(key), `projection key "${key}" collides with a Config field`)
 	}
-	// The component must read that key, not the field's object.
-	assert.match(client, /checked: state\.auditOn/)
-	assert.ok(!/checked: state\.audit\b/.test(client), 'the switch reads the field object, not the boolean')
+	// Each switch must read its own boolean key, not the field's object.
+	assert.match(client, /checked: state\[field\.position\]/)
+	assert.ok(
+		!/checked: state\.(global|audit)\b/.test(client),
+		'a switch reads the field object, not the boolean',
+	)
+	assert.ok(!/checked: state\.field\.name\b/.test(client))
+})
+
+/** The rule table the card declares, read from its `ruleGroups()` factory. */
+function cardRuleGroups() {
+	const body = client.slice(client.indexOf('function ruleGroups()'), client.indexOf('function ruleGroups()') + 6000)
+	return [...body.matchAll(/\{ id: '([a-z0-9-]+)', label: '([^']+)' \}/g)].map((match) => ({
+		id: match[1],
+		label: match[2],
+	}))
+}
+
+test('the card lists every built-in rule, and only built-in rules', () => {
+	// The browser factory cannot import `lib/catalog.js`, so the card keeps its
+	// own copy of the rule table. That copy must agree with the Host's, or a
+	// rule is either unswitchable or offered as a switch that does nothing.
+	const catalog = read('lib/catalog.js')
+	const catalogIds = [...catalog.matchAll(/^\t'([a-z0-9-]+)': \{/gm)].map((match) => match[1])
+	// The six derived verdicts are results rather than rules, so they have no
+	// switch and must not appear in the card.
+	const derived = new Set([
+		'no-static-verdict',
+		'command-too-long',
+		'user-allow-pattern',
+		'user-ask-pattern',
+		'user-deny-pattern',
+		'analysis-error',
+	])
+	const expected = catalogIds.filter((id) => !derived.has(id))
+	const card = cardRuleGroups()
+	assert.deepEqual(
+		card.map((rule) => rule.id).sort(),
+		[...expected].sort(),
+		'the card rule table disagrees with the Host catalog',
+	)
+	assert.ok(card.length > 15, 'the card rule table looks truncated')
+})
+
+test('each card rule carries the catalog title', () => {
+	// A label that drifts from the catalog shows the user a name the audit and
+	// the transcript never use.
+	const catalog = read('lib/catalog.js')
+	for (const rule of cardRuleGroups()) {
+		const entry = catalog.slice(catalog.indexOf(`'${rule.id}': {`))
+		const title = entry.match(/en: \{ title: '([^']+)'/)?.[1]
+		assert.ok(title !== undefined, `no catalog entry for "${rule.id}"`)
+		assert.equal(rule.label.toLowerCase(), title.toLowerCase(), `label for "${rule.id}" drifted`)
+	}
+})
+
+test('the disabledRules field is staged as a per-line list', () => {
+	assert.ok(client.includes("primitives.settingsTextField('disabledRules')"))
+	assert.match(css, /\.dshRuleGuardList\{/)
+	// The switch stages the whole list, so several rules save together.
+	assert.match(client, /this\.form\.actions\(\)\.edit\('disabledRules', next\.join\('\\n'\)\)/)
+})
+
+test('both fold groups exist and start closed', () => {
+	// The card opens with the always-relevant fields visible; the two groups a
+	// deployment sets once are folded so they do not bury them.
+	assert.match(client, /this\.rulesOpen = false/)
+	assert.match(client, /this\.patternsOpen = false/)
+	assert.match(client, /rulesOpen: this\.rulesOpen/)
+	assert.match(client, /patternsOpen: this\.patternsOpen/)
+	// Each fold button names the group it opens and is disabled with the form.
+	assert.match(client, /label: 'rules',/)
+	assert.match(client, /label: 'patterns',/)
+	assert.match(client, /toggleRules: \(\) => this\.toggleRules\(\)/)
+	assert.match(client, /togglePatterns: \(\) => this\.togglePatterns\(\)/)
+})
+
+test('the fold buttons are sized like the options around them', () => {
+	// The host's `sm` button is 12px text on a 28px row, which reads as a
+	// different and smaller control than the 13px labels and 34px inputs
+	// beside it. A fold is a primary click target, so it takes the host's
+	// default size and this card's own text metrics instead.
+	assert.ok(!/size: 'sm'/.test(client), 'the fold button still asks for the small size')
+	assert.ok(/variant: 'outline'/.test(client), 'the fold button lost its visible border')
+	// Scoped as a descendant so it beats the host's single-class button
+	// rules regardless of which stylesheet lands second.
+	assert.match(css, /\.dshRuleGuardField \.dshRuleGuardFold\{[^}]*font-size:13px/)
+	assert.match(css, /\.dshRuleGuardField \.dshRuleGuardFold\{[^}]*padding:0 12px/)
+	assert.match(css, /\.dshRuleGuardField \.dshRuleGuardFold\{[^}]*width:100%/)
+	// The field wrapper's own padding separates it; a margin on top of that
+	// doubles the gap above and none below.
+	assert.ok(
+		!/\.dshRuleGuardField \.dshRuleGuardFold\{[^}]*margin-top/.test(css),
+		'the fold button carries a margin the field wrapper already provides',
+	)
 })
 
 /**
@@ -349,4 +454,112 @@ test('the two dictionaries declare the same keys', () => {
 	// key name in that language's UI.
 	assert.deepEqual([...dictionaryKeys('en')].sort(), [...dictionaryKeys('zh')].sort())
 	assert.ok(dictionaryKeys('en').size > 20, 'the English dictionary looks truncated')
+})
+
+test('the detail page shows one image and nothing else', () => {
+	// The plugin detail page renders `meta.detail` verbatim. The documented
+	// shape is exactly one image line; prose there is what the README is for.
+	for (const [locale, file, image] of [
+		['en', 'docs/DETAIL.md', 'preview.svg'],
+		['zh', 'docs/DETAIL.zh.md', 'preview.zh.svg'],
+	]) {
+		const text = read(file).trim()
+		const lines = text.split('\n')
+		assert.equal(lines.length, 1, `${file} must hold exactly one line, found ${lines.length}`)
+		assert.match(lines[0], /^!\[[^\]]+\]\(preview(\.zh)?\.svg\)$/, `${file} is not one image line`)
+		assert.ok(existsSync(path.join(root, 'docs', image)), `docs/${image} is missing`)
+	}
+})
+
+test('the preview images are sized and text-free', () => {
+	// The detail page reserves a 640x300 frame, and an SVG that carries `text`
+	// elements depends on fonts the host may not have. `foreignObject` and
+	// scripting are worse: they are how an image escapes its frame.
+	for (const image of ['preview.svg', 'preview.zh.svg']) {
+		const svg = read(`docs/${image}`)
+		assert.match(svg, /width="640"/, `${image} is not 640 wide`)
+		assert.match(svg, /height="300"/, `${image} is not 300 tall`)
+		assert.match(svg, /viewBox="0 0 640 300"/, `${image} has the wrong viewBox`)
+		assert.ok(!/<text[\s>]/.test(svg), `${image} carries a text element`)
+		assert.ok(!/<foreignObject[\s>]/.test(svg), `${image} carries a foreignObject`)
+		assert.ok(!/<script[\s>]/.test(svg), `${image} carries a script`)
+		assert.ok(!/<animate[\s>]/.test(svg), `${image} carries an animation`)
+	}
+	// The size cap the host enforces on a detail image.
+	assert.ok(read('docs/preview.svg').length < 5 * 1024 * 1024, 'preview.svg exceeds the host cap')
+})
+
+test('the locale description stays a summary, not a page', () => {
+	// The description is what the Plugins list shows; the README is where the
+	// detail belongs. A description that grows into a page pushes the list
+	// layout apart.
+	for (const file of ['locale/en.json', 'locale/zh.json']) {
+		const meta = JSON.parse(read(file)).meta
+		assert.equal(typeof meta.title, 'string')
+		assert.ok(meta.description.length > 40, `${file} has no description`)
+		assert.ok(meta.description.length < 600, `${file} description is a page, not a summary`)
+		assert.equal(meta.detail, file.includes('zh') ? 'docs/DETAIL.zh.md' : 'docs/DETAIL.md')
+	}
+})
+
+test('the README carries the detail content the detail page no longer does', () => {
+	// Every section the old DETAIL.md had must have a home, or the rewrite
+	// silently loses documentation.
+	const english = read('README.md')
+	for (const heading of [
+		'Where it applies',
+		'Install',
+		'Configure',
+		'Decision path',
+		'Built-in rules',
+		'Custom patterns',
+		'What is allowed without a prompt',
+		'Known limitations',
+		'Audit',
+		'Development',
+		'Attribution',
+		'License',
+	]) {
+		assert.match(english, new RegExp(`^## ${heading}$`, 'm'), `README.md lost the "${heading}" section`)
+	}
+	// And the same structure in Chinese, or one language drifts.
+	const chinese = read('README.zh.md')
+	for (const heading of [
+		'生效范围',
+		'安装',
+		'配置',
+		'判定路径',
+		'内置规则',
+		'自定义规则正则',
+		'不会弹卡的情形',
+		'已知边界',
+		'审计',
+		'开发',
+		'致谢',
+		'许可',
+	]) {
+		assert.match(chinese, new RegExp(`^## ${heading}$`, 'm'), `README.zh.md lost the "${heading}" section`)
+	}
+	// The rule tables must have survived the move, all four dialects of them.
+	for (const ruleId of ['remove-critical-path', 'find-delete', 'system-storage', 'rsync-delete']) {
+		assert.match(english, new RegExp(`\\| \`${ruleId}\` \\|`), `README.md lost the ${ruleId} row`)
+	}
+	assert.match(english, /\| `git-stash-clear` \|/, 'README.md lost a git rule row')
+	assert.match(english, /\| `robocopy-delete` \|/, 'README.md lost a CMD rule row')
+	assert.match(english, /\| `pwsh-clear-recyclebin` \|/, 'README.md lost a PowerShell rule row')
+	// The preset snippet is the part a reader needs most.
+	assert.match(english, /guarded-full:/)
+	assert.match(english, /replaced wholesale, never\s+deep-merged/)
+	// Both languages must document the new switch.
+	assert.match(english, /Guard every session/)
+	assert.match(chinese, /全局生效/)
+})
+
+test('the README no longer points at the old detail pages', () => {
+	// The detail pages are one image line now, so a link to them as if they
+	// were the documentation is a dead end.
+	for (const file of ['README.md', 'README.zh.md']) {
+		const text = read(file)
+		assert.ok(!/docs\/DETAIL\.md/.test(text), `${file} still links DETAIL.md as the documentation`)
+	}
 })

@@ -39,8 +39,8 @@ import { auditReason, displayReason } from './lib/catalog.js'
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'rule-guard'
 
-/** The seams this plugin needs: the approval service and the tools service. */
-export const inject = ['approval', 'tools']
+/** The seams this plugin needs: the approval service, the sandbox policy, and the tools service. */
+export const inject = ['approval', 'sandboxPolicy', 'tools']
 
 /** Structured error identity for a `denyPatterns` denial. */
 const DENIED_ERROR_NAME = 'RuleGuardDeniedError'
@@ -55,6 +55,11 @@ const DEFAULT_TOOLS = ['pwsh', 'bash', 'terminal', 'pwsh_persistent', 'bash_pers
  * because the Plugins page and `--dump-config` show it verbatim.
  */
 export const Config = z.object({
+	global: z
+		.boolean()
+		.default(false)
+		.volatile()
+		.description('Whether the guard applies everywhere. Off (the default) limits it to sessions whose effective permission is full sandbox plus ask — the guarded-full preset — so an existing preset behaves exactly as before. On guards every session regardless of preset, sandbox or approval policy.'),
 	tools: z
 		.array(z.string())
 		.default(DEFAULT_TOOLS)
@@ -108,6 +113,11 @@ export const Config = z.object({
 		.default('')
 		.volatile()
 		.description('Audit file. Empty uses $DSH_HOME/rule-guard-audit.jsonl; $DSH_HOME and ${DSH_HOME} are expanded.'),
+	disabledRules: z
+		.array(z.string())
+		.default([])
+		.volatile()
+		.description('Built-in rule ids to switch off: a command matching one of them is released without asking, and the audit records that the rule was disabled. Empty enables every rule. Adding a rule to the engine enables it here automatically.'),
 })
 
 /**
@@ -123,6 +133,7 @@ function settingsOf(config) {
 	const tools = config.tools.get() ?? DEFAULT_TOOLS
 	const dialect = config.dialect.get() ?? 'auto'
 	return {
+		global: config.global.get() ?? false,
 		tools: new Set(Array.isArray(tools) ? tools.map(String) : DEFAULT_TOOLS),
 		dialect,
 		onUnsupported: config.onUnsupported.get() ?? 'allow',
@@ -133,7 +144,39 @@ function settingsOf(config) {
 		maxCommandLength: config.maxCommandLength.get() ?? 10000,
 		audit: config.audit.get() ?? true,
 		auditPath: config.auditPath.get() ?? '',
+		disabledRules: new Set(config.disabledRules.get() ?? []),
 	}
+}
+
+/**
+ * Whether the guard applies to one session.
+ *
+ * The guard is inert unless the effective permission asks the user. A preset
+ * whose approval policy is `never` rejects an ask deterministically, so a
+ * guard there could only ever produce a denial with no prompt; a preset with a
+ * narrower sandbox already confines the call. By default the guard therefore
+ * activates only where the two effective knobs read full sandbox plus ask,
+ * which is exactly what the guarded-full preset sets.
+ *
+ * Both knobs are read the way `dsh-permission-presets` derives them: the
+ * session's own override, else the service default. Matching the effective
+ * knobs rather than the preset's name keeps the guard working when the preset
+ * table does not name it — including a hand-tuned combination, which the
+ * permission service reports as `custom`.
+ *
+ * A knob that cannot be read at all leaves the guard inert, which is the same
+ * fail-open stance `onUnsupported` takes.
+ *
+ * @param {import('@deepseek-ai/cordis').Context} ctx - the plugin context.
+ * @param {ReturnType<typeof settingsOf>} settings - the resolved settings.
+ * @param {import('@deepseek-ai/dsh-session').Session} session - the session the call belongs to.
+ * @returns {boolean} whether the guard evaluates this session.
+ */
+function guardActive(ctx, settings, session) {
+	if (settings.global) return true
+	const sandbox = ctx.sandboxPolicy?.overrideOf(session) ?? ctx.sandboxPolicy?.defaultMode
+	const approval = ctx.approval?.overrideOf(session) ?? ctx.approval?.config?.policy ?? 'ask'
+	return sandbox === 'danger-full-access' && approval === 'ask'
 }
 
 /** One string argument, or `undefined` when the shape is not a command. */
@@ -156,6 +199,10 @@ export function apply(ctx, config) {
 	// than asking: a prompt raised by a plugin that no longer exists could
 	// never be answered.
 	const lifecycle = new AbortController()
+	// Asks this plugin has raised and not yet settled. Unload drains them so no
+	// prompt outlives the listener that would answer it.
+	const active = new Set()
+	let accepting = true
 
 	const audit = new AuditLog({
 		path: config.audit.get() === false ? undefined : expandPath(config.auditPath.get() ?? '', resolveDshHome),
@@ -182,43 +229,85 @@ export function apply(ctx, config) {
 					// to route an ask through; the host degrades it to a denial.
 					return next()
 				}
-				if (lifecycle.signal.aborted) return { kind: 'cancel' }
+				if (!accepting || lifecycle.signal.aborted) return { kind: 'cancel' }
+				if (!guardActive(ctx, settings, exec.agent.session)) return next()
 
-				const dialect =
-					settings.dialect === 'auto' ? dialectForTool(exec.name) : settings.dialect
-				const base = {
-					sessionId: exec.agent.session.id,
-					tool: exec.name,
-					callId: exec.callId,
-					dialect,
-				}
-
-				let decision
+				// Registered before the first await, so a call that is unloading
+				// right now is still drained rather than left floating.
+				const settled = Promise.withResolvers()
+				active.add(settled.promise)
 				try {
-					decision = analyzeCommand(command, {
-						dialect: dialect === 'unknown' ? 'posix' : dialect,
-						allowPatterns: settings.allowPatterns,
-						askPatterns: settings.askPatterns,
-						denyPatterns: settings.denyPatterns,
-						maxCommandLength: settings.maxCommandLength,
-					})
-				} catch (error) {
-					if (settings.onError === 'allow') {
-						record({
-							...base,
-							verdict: 'allow-pattern',
-							ruleId: 'analysis-error',
-							command,
-							reason: `rule-guard: analysis threw ${String(error)}; released by onError=allow`,
-						})
-						return next()
-					}
-					record({
-						...base,
-						verdict: 'error',
-						ruleId: 'analysis-error',
-						command,
-						reason: `rule-guard: analysis threw ${String(error)}`,
+					return await decide(ctx, exec, next, command, settings, record, lifecycle)
+				} finally {
+					active.delete(settled.promise)
+					settled.resolve()
+				}
+			},
+			// Appended, not prepended: this guard is the last gate, so a
+			// policy-driven listener such as the Auto review layer, or any other
+			// gate registered with `prepend`, decides first and its deny or ask
+			// wins.
+			{ prepend: false },
+		)
+		yield stopListener
+		yield async () => {
+			accepting = false
+			lifecycle.abort(new Error('rule-guard listener disposed'))
+			await Promise.allSettled([...active])
+		}
+	}, 'rule-guard lifecycle')
+}
+
+/**
+ * One call's decision, with the audit record written for every non-allow path.
+ *
+ * Split out of the listener so the listener stays readable: it resolves the
+ * settings and the session gate, then hands the command here.
+ *
+ * @param {import('@deepseek-ai/cordis').Context} ctx - the plugin context.
+ * @param {import('@deepseek-ai/dsh-tools').ToolExecution} exec - the pending execution.
+ * @param {() => Promise<import('@deepseek-ai/dsh-tools').PreToolDecision>} next - the next listener.
+ * @param {string} command - the command under decision.
+ * @param {ReturnType<typeof settingsOf>} settings - the resolved settings.
+ * @param {(entry: object) => void} record - the audit writer.
+ * @param {AbortController} lifecycle - the plugin's lifecycle, aborted on unload.
+ * @returns {Promise<import('@deepseek-ai/dsh-tools').PreToolDecision>} the decision.
+ */
+async function decide(ctx, exec, next, command, settings, record, lifecycle) {
+	const dialect = settings.dialect === 'auto' ? dialectForTool(exec.name) : settings.dialect
+	const base = {
+		sessionId: exec.agent.session.id,
+		tool: exec.name,
+		callId: exec.callId,
+		dialect,
+	}
+
+	let decision
+	try {
+		decision = analyzeCommand(command, {
+			dialect: dialect === 'unknown' ? 'posix' : dialect,
+			allowPatterns: settings.allowPatterns,
+			askPatterns: settings.askPatterns,
+			denyPatterns: settings.denyPatterns,
+			maxCommandLength: settings.maxCommandLength,
+		})
+	} catch (error) {
+		if (settings.onError === 'allow') {
+			record({
+				...base,
+				verdict: 'allow-pattern',
+				ruleId: 'analysis-error',
+				command,
+				reason: `rule-guard: analysis threw ${String(error)}; released by onError=allow`,
+			})
+			return next()
+		}
+		record({
+			...base,
+			verdict: 'error',
+			ruleId: 'analysis-error',
+			command,
+			reason: `rule-guard: analysis threw ${String(error)}`,
 					})
 					return askDecision(exec, 'analysis-error')
 				}
@@ -258,16 +347,24 @@ export function apply(ctx, config) {
 					return askDecision(exec, ruleId)
 				}
 
-				// A rule matched: ask the user, with no timeout.
-				const ruleId = decision.ruleId ?? 'unknown-rule'
-				const reason = auditReason(ruleId)
-				record({ ...base, verdict: 'ask', ruleId, command, reason })
-				return askDecision(exec, ruleId)
-			},
-			{ prepend: false },
-		)
-		yield stopListener
-	}, 'rule-guard lifecycle')
+			// A rule matched: ask the user, with no timeout.
+			const ruleId = decision.ruleId ?? 'unknown-rule'
+			if (settings.disabledRules.has(ruleId)) {
+				// The guard saw the dangerous shape and the configuration switched
+				// this rule off, so nothing happens. Recording it keeps the audit
+				// able to answer why a dangerous command produced no prompt.
+				record({
+					...base,
+					verdict: 'rule-disabled',
+					ruleId,
+					command,
+					reason: `rule "${ruleId}" is disabled by configuration; the call was released`,
+				})
+				return next()
+			}
+			const reason = auditReason(ruleId)
+			record({ ...base, verdict: 'ask', ruleId, command, reason })
+			return askDecision(exec, ruleId)
 }
 
 /**

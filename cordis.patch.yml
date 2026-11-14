@@ -12,10 +12,20 @@
 # drift from the schema, and would put values in a layer the editor cannot
 # clear. See the "Configuring" section in README.md.
 #
-# This bundle also deliberately does NOT patch the `permission` row: a profile
-# patch layer is applied after bundle layers, so a bundle-level preset table
-# would be overridden by the profile's own `permission` patch. The plugin
-# works under any `approval: ask` preset, which `workspace-write` already is.
+# This bundle also deliberately does NOT patch the `permission` row, in either
+# direction:
+#
+#   - A profile patch layer is applied after bundle layers, so a bundle-level
+#     preset table would be overridden by the profile's own `permission`
+#     patch — the `guarded-full` preset would silently vanish.
+#   - Worse in the other direction: in a profile that does NOT patch the row,
+#     a bundle patch carrying only `presets: {guarded-full: ...}` would
+#     replace the schema's own table wholesale and erase the stock
+#     `workspace-write` and `danger-full-access` presets.
+#
+# So the preset is added in the profile's patch instead, and the plugin gates
+# on the effective permission knobs rather than on a preset name. README.md's
+# "Where it applies" carries the snippet.
 - insert:
     - id: rule-guard
       name: '@lliangworld/dsh-rule-guard'

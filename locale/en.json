@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Rule guard",
-    "description": "Intercepts agent shell commands and judges them with local rules only: ordinary calls pass, a rule match asks the user with no timeout. Configure the guarded tools, the dialect, the allow/ask/deny patterns, and the audit log on this row in Plugins.",
+    "description": "Adds a pure-local rule guard for agent shell commands: an ordinary call passes, and a command matching a dangerous pattern asks you through the default approval panel, with no timeout. Off by default it applies only where the effective permission is full sandbox plus ask — the guarded-full preset — so an existing preset behaves exactly as before; switch it on globally to guard every session. Configure guarded tools, dialect, built-in rules, patterns and the audit log on this row in Plugins.",
     "detail": "docs/DETAIL.md"
   }
 }

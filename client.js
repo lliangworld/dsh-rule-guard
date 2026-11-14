@@ -51,6 +51,13 @@ window.__ModuleLoader__.load({
 		const en = {
 			description:
 				'Local shell-command rules: an ordinary call passes, a rule match asks the user with no timeout.',
+			global: 'Guard every session',
+			globalHint:
+				'Off (the default) guards only sessions whose effective permission is full sandbox plus ask — the guarded-full preset — so an existing preset behaves exactly as before. On guards every session regardless of preset, sandbox or approval policy.',
+			rules: 'Built-in rules',
+			rulesHint:
+				'A switched-off rule no longer asks: a command that matches it is released. The audit still records that the rule matched.',
+			patterns: 'Custom patterns',
 			tools: 'Guarded tools',
 			toolsHint:
 				'One tool name per line. A call to any tool not listed here is never intercepted. Leave blank to restore the default.',
@@ -105,6 +112,12 @@ window.__ModuleLoader__.load({
 		/** Simplified Chinese copy. */
 		const zh = {
 			description: '本地命令规则：普通调用直接放行，命中规则的命令询问用户，无倒计时。',
+			global: '全局生效',
+			globalHint:
+				'关闭（默认）时，只有有效权限为「全沙箱 + 询问」的会话——即守卫式全权限预设——才启用守卫，现有预设行为完全不变；开启后在任何预设、任何权限下都生效。',
+			rules: '内置规则',
+			rulesHint: '关掉某条规则后，命中它不再询问、直接放行；审计仍会记录这条规则命中过。',
+			patterns: '自定义规则正则',
 			tools: '受管工具',
 			toolsHint: '每行一个工具名。不在列表内的工具调用不会被拦截。留空恢复默认。',
 			dialect: '命令方言',
@@ -233,9 +246,16 @@ window.__ModuleLoader__.load({
 					format: (value) => (Array.isArray(value) ? value.join('\n') : ''),
 					parse: lineList,
 				},
-				// `audit` is a boolean: it rides the form as a text field only
-				// because `SettingsFormModel` needs a spec to stage it, and the
-				// switch reads its position from the scope snapshot instead.
+				{
+					...primitives.settingsTextField('disabledRules'),
+					format: (value) => (Array.isArray(value) ? value.join('\n') : ''),
+					parse: lineList,
+				},
+				// `global` and `audit` are booleans: they ride the form as text
+				// fields only because `SettingsFormModel` needs a spec to stage
+				// them, and each switch reads its position from the scope
+				// snapshot instead.
+				{ ...primitives.settingsTextField('global') },
 				{ ...primitives.settingsTextField('audit') },
 			]
 		}
@@ -284,6 +304,26 @@ window.__ModuleLoader__.load({
 			'.dshRuleGuardInvalid{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-state-error-primary)}',
 			// The pattern group's title and lead-in, as a lead not a heading.
 			'.dshRuleGuardLead{margin:0;padding:10px 0 0;font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary)}',
+			// A fold button: the host's outline button at its default size, with
+			// this card's own text metrics. Scoped as a descendant of the field
+			// block so it beats the host's single-class button rules whatever
+			// order the two stylesheets land in — a bare `.dshRuleGuardFold`
+			// would be at the same specificity as the host's and depend on
+			// document order. The host's `sm` (12px on a 28px row) is what made
+			// the folds read as smaller, different controls; the default row is
+			// 36px, so only the text and the horizontal padding need restating.
+			// `padding:0 12px` matches the host's own `_input`, so the label
+			// lines up with the text below it. No `margin-top`: the field
+			// wrapper's `padding:12px 0` already separates it, and the
+			// `.5px` rule above marks the seam.
+			'.dshRuleGuardField .dshRuleGuardFold{justify-content:space-between;align-items:center;width:100%;padding:0 12px;font-size:13px;line-height:1.5;display:flex}',
+			'.dshRuleGuardChevron{transition:transform .15s}',
+			'.dshRuleGuardChevronOpen{transform:rotate(180deg)}',
+			// One rule row inside the rules group: label left, switch right, no
+			// separator — the rules read as one list under one group title.
+			'.dshRuleGuardRuleRow{justify-content:space-between;align-items:center;gap:16px;padding:6px 0;display:flex}',
+			'.dshRuleGuardRuleLabel{color:var(--dsw-alias-label-primary);flex:1;min-width:0;font-size:13px;line-height:1.5}',
+			'.dshRuleGuardGroupTitle{color:var(--dsw-alias-label-secondary);margin:12px 0 0;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}',
 		].join('')
 		const tagId = '@lliangworld/dsh-rule-guard/RuleGuardCard.css'
 		//#endregion
@@ -293,8 +333,6 @@ window.__ModuleLoader__.load({
 		const NS = 'rule-guard'
 		/** Row-configuration key: the bundle package name and the row its patch declares. */
 		const ROW_CONFIG_KEY = '@lliangworld/dsh-rule-guard#rule-guard'
-		/** Field the switch stages its boolean position under. */
-		const AUDIT_FIELD = 'audit'
 		/**
 		 * Every Config field the card renders, in the order the Host schema
 		 * declares them. The card's field list must match the schema: a field
@@ -302,26 +340,89 @@ window.__ModuleLoader__.load({
 		 * `tests/client-card.test.js` asserts the two agree.
 		 */
 		const FIELDS = [
+			'global',
 			'tools',
 			'dialect',
 			'onUnsupported',
 			'onError',
-			'allowPatterns',
-			'askPatterns',
-			'denyPatterns',
 			'maxCommandLength',
 			'audit',
 			'auditPath',
+			'disabledRules',
+			'allowPatterns',
+			'askPatterns',
+			'denyPatterns',
 		]
+
+		/**
+		 * The built-in rules, grouped the way the dialects group them.
+		 *
+		 * This table is the browser half's own copy: a client factory resolves
+		 * only the baseline modules, so it cannot import `lib/catalog.js` for
+		 * the Host's titles. The ids must therefore stay in step with
+		 * `CATALOG`, and `tests/client-card.test.js` asserts that they do —
+		 * including that every id here is a real rule, not one of the six
+		 * derived verdicts (`no-static-verdict`, `command-too-long`,
+		 * `user-*-pattern`, `analysis-error`) that are results rather than
+		 * rules and so have no switch.
+		 *
+		 * @returns {{ name: string, rules: { id: string, label: string }[] }[]} the groups.
+		 */
+		function ruleGroups() {
+			return [
+				{
+					name: 'POSIX',
+					rules: [
+						{ id: 'remove-critical-path', label: 'Recursive or batch removal' },
+						{ id: 'find-delete', label: 'find delete action' },
+						{ id: 'system-storage', label: 'Disk or mount operation' },
+						{ id: 'rsync-delete', label: 'rsync delete sync' },
+					],
+				},
+				{
+					name: 'git',
+					rules: [
+						{ id: 'git-reset-hard', label: 'git history reset' },
+						{ id: 'git-clean-force', label: 'git force clean' },
+						{ id: 'git-push-force', label: 'git force push' },
+						{ id: 'git-discard-tree', label: 'git discard changes' },
+						{ id: 'git-stash-clear', label: 'git stash clear' },
+						{ id: 'git-worktree-force-remove', label: 'git force worktree remove' },
+					],
+				},
+				{
+					name: 'CMD',
+					rules: [
+						{ id: 'cmd-remove-tree', label: 'CMD recursive directory removal' },
+						{ id: 'cmd-delete-files', label: 'CMD batch file deletion' },
+						{ id: 'robocopy-delete', label: 'Robocopy mirror deletion' },
+					],
+				},
+				{
+					name: 'PowerShell',
+					rules: [
+						{ id: 'pwsh-remove-recursive', label: 'PowerShell recursive removal' },
+						{ id: 'pwsh-dotnet-delete', label: '.NET direct deletion' },
+						{ id: 'pwsh-dynamic-exec', label: 'Dynamic string execution' },
+						{ id: 'pwsh-download-exec', label: 'Download and execute' },
+						{ id: 'pwsh-credential-read', label: 'Credential file read' },
+						{ id: 'pwsh-credential-write', label: 'Credential file write' },
+						{ id: 'pwsh-system-config', label: 'System or permission configuration' },
+						{ id: 'pwsh-clear-recyclebin', label: 'Recycle bin cleared' },
+					],
+				},
+			]
+		}
 
 		/**
 		 * The Rule guard settings card's staged form over the plugin's
 		 * settings namespace.
 		 *
-		 * Ten fields, all rendered plainly rather than folded into an advanced
-		 * group: this card exists so the guard's policy is visible at a glance,
-		 * and the fields are the policy. The one structural split is the
-		 * pattern group at the end, which shares one explanatory lead-in.
+		 * The policy is spread over twelve fields, so the card keeps the
+		 * always-relevant ones open and folds the two groups a deployment sets
+		 * once — the built-in rules and the custom patterns — behind buttons.
+		 * The fold state lives here rather than in a React hook because a
+		 * factory only guarantees `react/jsx-runtime`.
 		 */
 		class RuleGuardCardController {
 			/** @param {object} scope - the bound settings scope for the plugin's namespace. */
@@ -334,6 +435,8 @@ window.__ModuleLoader__.load({
 					this.form.bind(() => this.projection()).subscribe(publish),
 					scope.subscribe(publish),
 				]
+				this.rulesOpen = false
+				this.patternsOpen = false
 			}
 
 			/** The staged form state the card renders. */
@@ -341,44 +444,80 @@ window.__ModuleLoader__.load({
 				const state = {
 					...this.form.shell(),
 					defaults: scopeBase(this.scope),
-					// `auditOn` rather than `audit`: the field loop below fills
-					// `state[field]` for every Config field, and a boolean
-					// cannot share a key with the form's `{text, overridden,
-					// invalid}` object for the same field.
-					auditOn: this.auditPosition(),
+					// `globalOn` and `auditOn` rather than the field names: the
+					// loop below fills `state[field]` for every Config field, and a
+					// boolean cannot share a key with the form's
+					// `{text, overridden, invalid}` object for the same field.
+					globalOn: this.switchPosition('global', false),
+					auditOn: this.switchPosition('audit', true),
+					rulesOpen: this.rulesOpen,
+					patternsOpen: this.patternsOpen,
 				}
 				for (const field of FIELDS) state[field] = this.form.field(field)
 				return state
 			}
 
 			/**
-			 * The audit switch position: the staged draft while it differs from
-			 * the config, otherwise the value the section serves. It is read
-			 * from the scope rather than the form's text field, because a
-			 * boolean cannot be echoed back through one.
+			 * One boolean field's switch position: the staged draft while it
+			 * differs from the config, otherwise the value the section serves.
+			 * It is read from the scope rather than the form's text field,
+			 * because a boolean cannot be echoed back through one.
 			 *
+			 * @param {string} field - the config field the switch drives.
+			 * @param {boolean} fallback - the value the field defaults to when the section has none.
 			 * @returns {boolean} the switch position.
 			 */
-			auditPosition() {
-				const effective = scopeValue(this.scope, AUDIT_FIELD) ?? true
-				return this.auditDraft === undefined || this.auditDraft === effective
-					? effective
-					: this.auditDraft
+			switchPosition(field, fallback) {
+				const effective = scopeValue(this.scope, field) ?? fallback
+				const draft = this.drafts?.[field]
+				return draft === undefined || draft === effective ? effective : draft
 			}
 
 			/**
 			 * Stage one switch position. A position equal to the inherited value
-			 * clears the override so the schema default keeps applying;
-			 * anything else stages the edit the form saves with the rest.
+			 * clears the override so the schema default keeps applying; anything
+			 * else stages the edit the form saves with the rest.
 			 *
+			 * @param {string} field - the config field the switch drives.
 			 * @param {boolean} checked - the switch's new position.
+			 * @param {boolean} fallback - the value the field defaults to.
 			 */
-			setAudit(checked) {
-				const base = scopeBase(this.scope)?.[AUDIT_FIELD]
-				if ((base ?? true) === checked) this.form.actions().resetField(AUDIT_FIELD)
-				else this.form.actions().edit(AUDIT_FIELD, checked ? 'true' : 'false')
-				this.auditDraft = checked
+			setSwitch(field, checked, fallback) {
+				const base = scopeBase(this.scope)?.[field]
+				if ((base ?? fallback) === checked) this.form.actions().resetField(field)
+				else this.form.actions().edit(field, checked ? 'true' : 'false')
+				this.drafts = { ...this.drafts, [field]: checked }
 				this.store.set(this.projection())
+			}
+
+			/** Open or close the built-in rules group. */
+			toggleRules() {
+				this.rulesOpen = !this.rulesOpen
+				this.store.set(this.projection())
+			}
+
+			/** Open or close the custom patterns group. */
+			togglePatterns() {
+				this.patternsOpen = !this.patternsOpen
+				this.store.set(this.projection())
+			}
+
+			/**
+			 * Stage a change to the disabled-rule list.
+			 *
+			 * A switch that turns a rule off adds its id; one that turns it back
+			 * on removes it. The staged text is the whole list, so switching
+			 * several rules in one visit saves together.
+			 *
+			 * @param {string} ruleId - the rule the switch belongs to.
+			 * @param {boolean} wasEnabled - the switch position before this change.
+			 */
+			toggleRule(ruleId, wasEnabled) {
+				const current = disabledRulesOf(this.projection())
+				const next = wasEnabled
+					? [...current, ruleId]
+					: current.filter((id) => id !== ruleId)
+				this.form.actions().edit('disabledRules', next.join('\n'))
 			}
 
 			/** Build the face the slot registration injects. */
@@ -386,7 +525,11 @@ window.__ModuleLoader__.load({
 				return {
 					hooks: { ruleGuardCard: this.store },
 					...this.form.actions(),
-					setAudit: (checked) => this.setAudit(checked),
+					setGlobal: (checked) => this.setSwitch('global', checked, false),
+					setAudit: (checked) => this.setSwitch('audit', checked, true),
+					toggleRule: (ruleId, wasEnabled) => this.toggleRule(ruleId, wasEnabled),
+					toggleRules: () => this.toggleRules(),
+					togglePatterns: () => this.togglePatterns(),
 				}
 			}
 
@@ -566,34 +709,125 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Render the audit switch as a `.dshRuleGuardField` block: the label and
+		 * Render one boolean field as a `.dshRuleGuardField` block: the label and
 		 * the switch in the head row, and the hint under them.
 		 *
 		 * @param {object} props - the card's props, whose actions write the field.
 		 * @param {(key: string, vars?: Record<string, unknown>) => string} t - the card's locale reader.
 		 * @param {object} state - the card's current snapshot.
+		 * @param {{ name: string, position: string, hint: string }} field - the field descriptor.
 		 * @param {boolean} disabled - whether the form refuses edits right now.
 		 * @returns the field block.
 		 */
-		function auditField(props, t, state, disabled) {
+		function switchField(props, t, state, field, disabled) {
 			return jsx.jsxs('div', {
 				className: 'dshRuleGuardField',
 				children: [
 					jsx.jsxs('div', {
 						className: 'dshRuleGuardHead',
 						children: [
-							jsx.jsx('span', { className: 'dshRuleGuardLabel', children: t('audit') }),
+							jsx.jsx('span', { className: 'dshRuleGuardLabel', children: t(field.name) }),
 							jsx.jsx(primitives.Switch, {
-								checked: state.auditOn,
-								label: t('audit'),
+								checked: state[field.position],
+								label: t(field.name),
 								disabled,
-								onChange: (checked) => props.setAudit(checked),
+								onChange: (checked) => props[field.set](checked),
 							}),
 						],
 					}),
-					jsx.jsx('p', { className: 'dshRuleGuardHint', children: t('auditHint') }),
+					jsx.jsx('p', { className: 'dshRuleGuardHint', children: t(field.hint) }),
 				],
 			})
+		}
+
+		/**
+		 * Render one fold button: the group's name on the left, a chevron that
+		 * points down while the group is closed.
+		 *
+		 * The host's default size, not `sm`: the small button is 12px text on a
+		 * 28px row, which reads as a different and smaller control than the
+		 * 13px labels and 34px inputs beside it — and a fold is a primary
+		 * click target. `dshRuleGuardFold` then restores this card's own text
+		 * metrics, so the button matches its neighbours without asking the
+		 * host for a size that does not exist. The shipped keenable card folds
+		 * with `sm`; its fields are denser, so the smaller row suits it there.
+		 *
+		 * @param {object} props - the card's props, whose action toggles the group.
+		 * @param {(key: string) => string} t - the card's locale reader.
+		 * @param {{ label: string, action: string, open: boolean, id: string }} group - the group descriptor.
+		 * @param {boolean} disabled - whether the form refuses edits right now.
+		 * @returns the button.
+		 */
+		function foldButton(props, t, group, disabled) {
+			return jsx.jsx('div', {
+				className: 'dshRuleGuardField',
+				children: jsx.jsxs(primitives.Button, {
+					variant: 'outline',
+					className: 'dshRuleGuardFold',
+					disabled,
+					'aria-expanded': group.open,
+					'aria-controls': group.id,
+					onClick: () => props[group.action](),
+					children: [
+						jsx.jsx('span', { children: t(group.label) }),
+						jsx.jsx(primitives.IconChevronDownOutlineRegular, {
+							size: 20,
+							'aria-hidden': 'true',
+							className: `dshRuleGuardChevron${group.open ? ' dshRuleGuardChevronOpen' : ''}`,
+						}),
+					],
+				}),
+			})
+		}
+
+		/**
+		 * Render one built-in rule row: its name and the switch that decides
+		 * whether a match asks.
+		 *
+		 * The switch reads the staged `disabledRules` list rather than a field
+		 * of its own: twenty-one switches would mean twenty-one config fields,
+		 * and the list is what the Host reads.
+		 *
+		 * @param {object} props - the card's props, whose action stages the list.
+		 * @param {(key: string) => string} t - the card's locale reader.
+		 * @param {object} state - the card's current snapshot.
+		 * @param {{ id: string, label: string }} rule - the rule descriptor.
+		 * @param {boolean} disabled - whether the form refuses edits right now.
+		 * @returns the rule row.
+		 */
+		function ruleRow(props, t, state, rule, disabled) {
+			const enabled = !disabledRulesOf(state).includes(rule.id)
+			return jsx.jsxs('div', {
+				className: 'dshRuleGuardRuleRow',
+				children: [
+					jsx.jsx('span', { className: 'dshRuleGuardRuleLabel', children: rule.label }),
+					jsx.jsx(primitives.Switch, {
+						checked: enabled,
+						label: rule.label,
+						disabled,
+						onChange: () => props.toggleRule(rule.id, enabled),
+					}),
+				],
+			})
+		}
+
+		/**
+		 * The staged or effective list of disabled rule ids.
+		 *
+		 * While nothing is staged the field's text already carries the effective
+		 * list, because the spec's custom `format` produced it; once a switch
+		 * moves it carries the staged one.
+		 *
+		 * @param {object} state - the card's current snapshot.
+		 * @returns {string[]} the rule ids switched off.
+		 */
+		function disabledRulesOf(state) {
+			const entry = state.disabledRules
+			if (entry === undefined) return []
+			return entry.text
+				.split('\n')
+				.map((line) => line.trim())
+				.filter((line) => line.length > 0)
 		}
 
 		/**
@@ -614,6 +848,12 @@ window.__ModuleLoader__.load({
 				onSave: props.save,
 				onDiscard: props.discard,
 				children: [
+					switchField(props, t, state, {
+						name: 'global',
+						position: 'globalOn',
+						hint: 'globalHint',
+						set: 'setGlobal',
+					}, disabled),
 					listField(props, t, state, { name: 'tools', invalid: 'invalidList', rows: 4 }, disabled),
 					enumField(props, t, state, {
 						name: 'dialect',
@@ -672,17 +912,51 @@ window.__ModuleLoader__.load({
 						onEdit: (text) => props.edit('auditPath', text),
 						onReset: () => props.resetField('auditPath'),
 					}),
-					auditField(props, t, state, disabled),
-					jsx.jsxs('div', {
-						className: 'dshRuleGuardField',
-						children: [
-							jsx.jsx('p', { className: 'dshRuleGuardLead', children: t('patterns') }),
-							jsx.jsx('p', { className: 'dshRuleGuardLead', children: t('patternsHint') }),
-							listField(props, t, state, { name: 'allowPatterns', invalid: 'invalidList', rows: 3 }, disabled),
-							listField(props, t, state, { name: 'askPatterns', invalid: 'invalidList', rows: 3 }, disabled),
-							listField(props, t, state, { name: 'denyPatterns', invalid: 'invalidList', rows: 3 }, disabled),
-						],
-					}),
+					switchField(props, t, state, {
+						name: 'audit',
+						position: 'auditOn',
+						hint: 'auditHint',
+						set: 'setAudit',
+					}, disabled),
+					foldButton(props, t, {
+						label: 'rules',
+						action: 'toggleRules',
+						open: state.rulesOpen,
+						id: 'plugin-config-rule-guard-rules',
+					}, disabled),
+					state.rulesOpen
+						? jsx.jsxs('div', {
+								id: 'plugin-config-rule-guard-rules',
+								children: [
+									jsx.jsx('p', { className: 'dshRuleGuardLead', children: t('rulesHint') }),
+									...ruleGroups().map((group) =>
+										jsx.jsxs('div', {
+											children: [
+												jsx.jsx('p', { className: 'dshRuleGuardGroupTitle', children: group.name }),
+												...group.rules.map((rule) => ruleRow(props, t, state, rule, disabled)),
+											],
+										}, group.name),
+									),
+								],
+							})
+						: null,
+					foldButton(props, t, {
+						label: 'patterns',
+						action: 'togglePatterns',
+						open: state.patternsOpen,
+						id: 'plugin-config-rule-guard-patterns',
+					}, disabled),
+					state.patternsOpen
+						? jsx.jsxs('div', {
+								id: 'plugin-config-rule-guard-patterns',
+								children: [
+									jsx.jsx('p', { className: 'dshRuleGuardLead', children: t('patternsHint') }),
+									listField(props, t, state, { name: 'allowPatterns', invalid: 'invalidList', rows: 3 }, disabled),
+									listField(props, t, state, { name: 'askPatterns', invalid: 'invalidList', rows: 3 }, disabled),
+									listField(props, t, state, { name: 'denyPatterns', invalid: 'invalidList', rows: 3 }, disabled),
+								],
+							})
+						: null,
 				],
 			})
 		}

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="300" viewBox="0 0 640 300" fill="none">
+  <rect width="640" height="300" fill="#F5F6FC"/>
+  <!-- left: the terminal window with three command lines -->
+  <rect x="36" y="60" width="248" height="180" rx="10" fill="#FFFFFF"/>
+  <rect x="36" y="60" width="248" height="26" rx="10" fill="#ECEEF9"/>
+  <circle cx="56" cy="73" r="4" fill="#D2D7EC"/>
+  <circle cx="72" cy="73" r="4" fill="#D2D7EC"/>
+  <circle cx="88" cy="73" r="4" fill="#D2D7EC"/>
+  <path d="M60 108h44M116 108h34" stroke="#8E9AD0" stroke-width="5" stroke-linecap="round"/>
+  <path d="M60 128h108" stroke="#C3CADF" stroke-width="5" stroke-linecap="round"/>
+  <path d="M60 148h72" stroke="#C3CADF" stroke-width="5" stroke-linecap="round"/>
+  <path d="M60 168h126" stroke="#C3CADF" stroke-width="5" stroke-linecap="round"/>
+  <path d="M60 188h58" stroke="#C3CADF" stroke-width="5" stroke-linecap="round"/>
+  <path d="M60 208h96" stroke="#C3CADF" stroke-width="5" stroke-linecap="round"/>
+  <!-- the arrow from the command to the shield -->
+  <path d="M288 150h34" stroke="#8E9AD0" stroke-width="3" stroke-linecap="round"/>
+  <path d="M314 144l8 6-8 6" stroke="#8E9AD0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- middle: the shield -->
+  <path d="M368 78l34 12v26c0 22-14 36-34 42-20-6-34-20-34-42V90l34-12Z" fill="#4A65E8" fill-opacity="0.14"/>
+  <path d="M368 82l29 10v24c0 19-12 31-29 36-17-5-29-17-29-36V92l29-10Z" stroke="#4A65E8" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M356 150l9 9 17-18" stroke="#4A65E8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- the arrow from the shield to the panel -->
+  <path d="M412 150h34" stroke="#8E9AD0" stroke-width="3" stroke-linecap="round"/>
+  <path d="M438 144l8 6-8 6" stroke="#8E9AD0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- right: the approval panel -->
+  <rect x="456" y="60" width="150" height="180" rx="10" fill="#FFFFFF"/>
+  <rect x="456" y="60" width="150" height="8" rx="4" fill="#4A65E8" fill-opacity="0.5"/>
+  <path d="M474 92h60M474 108h38" stroke="#8E9AD0" stroke-width="5" stroke-linecap="round"/>
+  <rect x="474" y="130" width="114" height="30" rx="6" fill="#ECEEF9"/>
+  <path d="M490 145h40" stroke="#8E9AD0" stroke-width="5" stroke-linecap="round"/>
+  <rect x="474" y="176" width="54" height="28" rx="6" fill="#4A65E8"/>
+  <path d="M490 190h22" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+  <rect x="536" y="176" width="52" height="28" rx="6" stroke="#B7BFDE" stroke-width="2"/>
+  <path d="M552 190h20" stroke="#8E9AD0" stroke-width="4" stroke-linecap="round"/>
+</svg>

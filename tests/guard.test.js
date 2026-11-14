@@ -64,6 +64,7 @@ function nextSpy() {
 
 function config(overrides = {}) {
 	return {
+		global: ref(false),
 		tools: ref(['pwsh', 'bash']),
 		dialect: ref('auto'),
 		onUnsupported: ref('allow'),
@@ -74,8 +75,36 @@ function config(overrides = {}) {
 		maxCommandLength: ref(10000),
 		audit: ref(false),
 		auditPath: ref(''),
+		disabledRules: ref([]),
 		...overrides,
 	}
+}
+
+/** The permission service's two effective knobs, as `guardActive` reads them. */
+const KNOBS = [
+	{ sandbox: 'read-only', approval: 'ask' },
+	{ sandbox: 'workspace-write', approval: 'ask' },
+	{ sandbox: 'workspace-write', approval: 'never' },
+	{ sandbox: 'danger-full-access', approval: 'never' },
+	{ sandbox: 'danger-full-access', approval: 'ask' },
+	{ sandbox: 'read-only', approval: 'never' },
+]
+
+/**
+ * A context whose knobs read the guarded-full preset's effective values.
+ *
+ * Both knobs are supplied through the path `guardActive` uses: the session's
+ * own override, else the service default. Every test that exercises the engine
+ * itself — rules, patterns, dialects, audit — needs the guard to be active;
+ * without the knobs the listener would hand the call straight to `next`.
+ */
+function guardedContext() {
+	const context = fakeContext()
+	Object.assign(context, {
+		approval: { overrideOf: () => undefined, config: { policy: 'ask' } },
+		sandboxPolicy: { overrideOf: () => 'danger-full-access', defaultMode: 'workspace-write' },
+	})
+	return context
 }
 
 test('a tool outside the configured list falls through', async () => {
@@ -88,8 +117,83 @@ test('a tool outside the configured list falls through', async () => {
 	assert.equal(spy.called, true)
 })
 
-test('an ordinary command falls through without asking', async () => {
+test('the guard is inert unless the effective permission asks', async () => {
+	// Every preset but the guarded one must behave exactly as before, so the
+	// listener must hand the call on before any analysis runs.
+	for (const knobs of KNOBS) {
+		const context = fakeContext()
+		Object.assign(context, {
+			approval: { overrideOf: () => undefined, config: { policy: knobs.approval } },
+			sandboxPolicy: { overrideOf: () => knobs.sandbox, defaultMode: 'workspace-write' },
+		})
+		apply(context, config())
+		const { spy, next } = nextSpy()
+		const decision = await listenerOf(context)(
+			fakeExec({ arguments: { command: 'git clean -fdx' } }),
+			next,
+		)
+		const guarded = knobs.sandbox === 'danger-full-access' && knobs.approval === 'ask'
+		if (guarded) {
+			assert.equal(decision.kind, 'ask', `guarded knobs must ask: ${JSON.stringify(knobs)}`)
+			assert.equal(spy.called, false)
+		} else {
+			assert.deepEqual(decision, { kind: 'allow' }, `knobs must pass through: ${JSON.stringify(knobs)}`)
+			assert.equal(spy.called, true)
+		}
+	}
+})
+
+test('a missing permission service leaves the guard inert', async () => {
+	// A knob that cannot be read at all fails open, the same stance
+	// `onUnsupported` takes.
 	const context = fakeContext()
+	apply(context, config())
+	const { spy, next } = nextSpy()
+	const decision = await listenerOf(context)(
+		fakeExec({ arguments: { command: 'git clean -fdx' } }),
+		next,
+	)
+	assert.deepEqual(decision, { kind: 'allow' })
+	assert.equal(spy.called, true)
+})
+
+test('the global switch guards every session', async () => {
+	// With `global` on, the knob pair no longer gates: even the stock
+	// `workspace-write` preset, which asks, and a `never` preset, which would
+	// reject the ask, are guarded.
+	for (const knobs of KNOBS) {
+		const context = fakeContext()
+		Object.assign(context, {
+			approval: { overrideOf: () => undefined, config: { policy: knobs.approval } },
+			sandboxPolicy: { overrideOf: () => knobs.sandbox, defaultMode: 'workspace-write' },
+		})
+		apply(context, config({ global: ref(true) }))
+		const { spy, next } = nextSpy()
+		const decision = await listenerOf(context)(
+			fakeExec({ arguments: { command: 'git clean -fdx' } }),
+			next,
+		)
+		assert.equal(decision.kind, 'ask', `global must guard every session: ${JSON.stringify(knobs)}`)
+		assert.equal(spy.called, false)
+	}
+})
+
+test('the guard does not evaluate allow or deny patterns while inert', async () => {
+	// A deny pattern is the sharpest thing the engine has; it must stay out of
+	// the path entirely when the guard does not apply.
+	const context = fakeContext()
+	apply(context, config({ denyPatterns: ref(['^git status$']) }))
+	const { spy, next } = nextSpy()
+	const decision = await listenerOf(context)(
+		fakeExec({ arguments: { command: 'git status' } }),
+		next,
+	)
+	assert.deepEqual(decision, { kind: 'allow' })
+	assert.equal(spy.called, true)
+})
+
+test('an ordinary command falls through without asking', async () => {
+	const context = guardedContext()
 	apply(context, config())
 	const listener = listenerOf(context)
 	const { spy, next } = nextSpy()
@@ -99,7 +203,7 @@ test('an ordinary command falls through without asking', async () => {
 })
 
 test('a matched rule asks, with a reason and a bilingual display', async () => {
-	const context = fakeContext()
+	const context = guardedContext()
 	apply(context, config())
 	const listener = listenerOf(context)
 	const { spy, next } = nextSpy()
@@ -113,7 +217,7 @@ test('a matched rule asks, with a reason and a bilingual display', async () => {
 })
 
 test('a deny pattern denies outright with a structured error', async () => {
-	const context = fakeContext()
+	const context = guardedContext()
 	apply(context, config({ denyPatterns: ref(['^git status$']) }))
 	const listener = listenerOf(context)
 	const { spy, next } = nextSpy()
@@ -126,7 +230,7 @@ test('a deny pattern denies outright with a structured error', async () => {
 test('an unjudgeable command follows the configured policy', async () => {
 	// A dynamic command name hides what will run, so the fail-closed stance
 	// asks; the default stance releases it.
-	const strict = fakeContext()
+	const strict = guardedContext()
 	apply(strict, config({ onUnsupported: ref('ask') }))
 	const ask = await listenerOf(strict)(fakeExec({ arguments: { command: '& $script' } }), nextSpy().next)
 	assert.equal(ask.kind, 'ask')
@@ -134,14 +238,14 @@ test('an unjudgeable command follows the configured policy', async () => {
 
 	// A dynamic argument with no dangerous switch is an ordinary call: the
 	// switches are visible, so nothing needs to be hidden from.
-	const ordinary = fakeContext()
+	const ordinary = guardedContext()
 	apply(ordinary, config())
 	const release = await listenerOf(ordinary)(fakeExec({ arguments: { command: '& $script' } }), nextSpy().next)
 	assert.equal(release.kind, 'allow')
 })
 
 test('a fixed dialect overrides inference', async () => {
-	const context = fakeContext()
+	const context = guardedContext()
 	apply(context, config({ dialect: ref('powershell') }))
 	const listener = listenerOf(context)
 	const decision = await listener(
@@ -152,8 +256,73 @@ test('a fixed dialect overrides inference', async () => {
 	assert.match(decision.reason, /pwsh-remove-recursive/)
 })
 
+test('decisions are written to the audit log when enabled', async () => {
+	const directory = mkdtempSync(path.join(tmpdir(), 'rule-guard-audit-'))
+	const auditPath = path.join(directory, 'audit.jsonl')
+	try {
+		const context = guardedContext()
+		apply(context, config({ audit: ref(true), auditPath: ref(auditPath) }))
+		const listener = listenerOf(context)
+		await listener(fakeExec({ arguments: { command: 'git clean -fdx' } }), nextSpy().next)
+		await listener(fakeExec({ arguments: { command: 'git status' } }), nextSpy().next)
+		assert.equal(existsSync(auditPath), true)
+		const lines = readFileSync(auditPath, 'utf8').trim().split('\n')
+		assert.equal(lines.length, 1)
+		const record = JSON.parse(lines[0])
+		assert.equal(record.verdict, 'ask')
+		assert.equal(record.ruleId, 'git-clean-force')
+		assert.equal(record.tool, 'pwsh')
+		assert.equal(record.sessionId, 'session-1')
+		assert.equal(record.command, 'git clean -fdx')
+	} finally {
+		rmSync(directory, { recursive: true, force: true })
+	}
+})
+
+test('a disabled rule is recorded as released, not as an ask', async () => {
+	const directory = mkdtempSync(path.join(tmpdir(), 'rule-guard-audit-'))
+	const auditPath = path.join(directory, 'audit.jsonl')
+	try {
+		const context = guardedContext()
+		apply(
+			context,
+			config({ audit: ref(true), auditPath: ref(auditPath), disabledRules: ref(['git-clean-force']) }),
+		)
+		const { spy, next } = nextSpy()
+		const decision = await listenerOf(context)(
+			fakeExec({ arguments: { command: 'git clean -fdx' } }),
+			next,
+		)
+		assert.deepEqual(decision, { kind: 'allow' })
+		assert.equal(spy.called, true)
+		const lines = readFileSync(auditPath, 'utf8').trim().split('\n')
+		const record = JSON.parse(lines[lines.length - 1])
+		assert.equal(record.verdict, 'rule-disabled')
+		assert.equal(record.ruleId, 'git-clean-force')
+		assert.match(record.reason, /is disabled by configuration/)
+	} finally {
+		rmSync(directory, { recursive: true, force: true })
+	}
+})
+
+test('an unknown rule id in the disabled list disables nothing', async () => {
+	// The list is user-editable, so a stale or misspelled id must not silence
+	// the engine: every other rule keeps asking.
+	const context = guardedContext()
+	apply(context, config({ disabledRules: ref(['no-such-rule']) }))
+	const { spy, next } = nextSpy()
+	const decision = await listenerOf(context)(
+		fakeExec({ arguments: { command: 'git clean -fdx' } }),
+		next,
+	)
+	assert.equal(decision.kind, 'ask')
+	assert.equal(spy.called, false)
+})
+
 test('an execution without an agent falls through', async () => {
-	const context = fakeContext()
+	// Without an agent there is no session to gate on and no UI to route an ask
+	// through; the host degrades it to a denial, so the guard steps aside.
+	const context = guardedContext()
 	apply(context, config())
 	const listener = listenerOf(context)
 	const { spy, next } = nextSpy()
@@ -166,7 +335,7 @@ test('decisions are written to the audit log when enabled', async () => {
 	const directory = mkdtempSync(path.join(tmpdir(), 'rule-guard-audit-'))
 	const auditPath = path.join(directory, 'audit.jsonl')
 	try {
-		const context = fakeContext()
+		const context = guardedContext()
 		apply(context, config({ audit: ref(true), auditPath: ref(auditPath) }))
 		const listener = listenerOf(context)
 		await listener(fakeExec({ arguments: { command: 'git clean -fdx' } }), nextSpy().next)
