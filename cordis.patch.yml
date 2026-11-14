@@ -1,0 +1,21 @@
+# The layer this bundle contributes when a profile lists it.
+#
+# The plugin registers under the id `rule-guard` and listens on the
+# `tools/pre-execute` waterfall: a call whose command matches a local rule is
+# answered with `ask`, which the host routes to the default approval panel
+# (no countdown). Everything else falls through to the next listener.
+#
+# This row deliberately declares no `config:` block. Every field's default
+# lives in one place — `export const Config` in index.js — and the config
+# editor on the Plugins page writes the user's own layer into the profile
+# patch. Restating the defaults here would create a second source that can
+# drift from the schema, and would put values in a layer the editor cannot
+# clear. See the "Configuring" section in README.md.
+#
+# This bundle also deliberately does NOT patch the `permission` row: a profile
+# patch layer is applied after bundle layers, so a bundle-level preset table
+# would be overridden by the profile's own `permission` patch. The plugin
+# works under any `approval: ask` preset, which `workspace-write` already is.
+- insert:
+    - id: rule-guard
+      name: '@lliangworld/dsh-rule-guard'

@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Rule guard",
+    "description": "Intercepts agent shell commands and judges them with local rules only: ordinary calls pass, a rule match asks the user with no timeout. Configure the guarded tools, the dialect, the allow/ask/deny patterns, and the audit log on this row in Plugins.",
+    "detail": "docs/DETAIL.md"
+  }
+}
