@@ -37,6 +37,7 @@ import { AuditLog, expandPath } from './lib/audit.js'
 import { auditReason, displayReason } from './lib/catalog.js'
 import { installPreset, removePreset } from './lib/preset.js'
 
+
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'rule-guard'
 
@@ -73,7 +74,7 @@ export const Config = z.object({
 		.boolean()
 		.default(true)
 		.volatile()
-		.description('Whether enabling this plugin adds the guarded-full permission preset, and disabling it removes it again. Off leaves the preset table alone: you maintain the preset yourself in the profile patch, as documented in README.md.'),
+		.description('Whether enabling this plugin adds the guarded-full permission preset, so there is nothing to edit by hand. Removing it again when the plugin is disabled is best-effort: the loader will not accept a config write while it is unloading this plugin. Off leaves the preset table alone: you maintain the preset yourself in the profile patch, as documented in README.md.'),
 	tools: z
 		.array(z.string())
 		.default(DEFAULT_TOOLS)
@@ -234,21 +235,33 @@ export function apply(ctx, config) {
 	// asks the user, and it cannot be registered at runtime — the permission
 	// service reads its table from configuration. So while this plugin is
 	// enabled it owns a `guarded-full` preset through the config editor, the
-	// same path the Plugins page uses, and gives it back when unloaded.
+	// same path the Plugins page uses.
 	//
-	// The install is started but not awaited: `edit` reconciles the loader, and
+	// The write cannot happen during this effect's setup. `edit` reconciles the
+	// loader, which opens its own HMR transaction, and the loader refuses to
+	// nest them: called here it fails with "HMR transactions cannot be nested",
+	// and the transaction that is enabling this plugin outlives both a macrotask
+	// and seconds of retrying. The same call succeeds from a tool execution,
+	// which runs long after the loader has settled — so the install is attempted
+	// here and again from the guard's own listener, and whichever lands first
+	// wins while the other finds the preset already present.
+	//
+	// The install is never awaited, because `edit` reloads the affected row and
 	// blocking `apply` on that would delay every other plugin's startup for a
-	// write whose only failure mode is a preset that stays absent. The removal
-	// is awaited, because an unload that returns before the write lands can
-	// leave a preset pointing at a plugin that is gone.
-	ctx.effect(function* () {
-		if (config.managePreset.get() === false) {
-			yield () => {}
-			return
-		}
+	// write whose only failure mode is a preset that stays absent. The removal is
+	// awaited, but it is best-effort by necessity: the transaction that unloads
+	// this plugin never closes, and no listener runs once the fiber is gone, so
+	// the preset usually stays behind — the safe direction, since the guard keeps
+	// working under it and the next enable finds it already present.
+	let presetManaged = false
+
+	/** Make sure the preset exists, at most until it does. */
+	const ensurePreset = () => {
+		if (presetManaged || config.managePreset.get() === false) return
 		installPreset(ctx)
 			.then((outcome) => {
-				if (outcome === 'skipped') {
+				if (outcome === 'written' || outcome === 'present') presetManaged = true
+				else {
 					ctx.logger?.warn?.(
 						'rule-guard: no permission preset row to manage; add guarded-full to the profile patch yourself, see README.md',
 					)
@@ -257,7 +270,16 @@ export function apply(ctx, config) {
 			.catch((error) => {
 				ctx.logger?.warn?.(`rule-guard: could not add the guarded-full preset: ${String(error)}`)
 			})
+	}
+
+	ctx.effect(function* () {
+		if (config.managePreset.get() === false) {
+			yield () => {}
+			return
+		}
+		ensurePreset()
 		yield async () => {
+			presetManaged = false
 			try {
 				await removePreset(ctx)
 			} catch (error) {
@@ -274,6 +296,10 @@ export function apply(ctx, config) {
 			async (exec, next) => {
 				const settings = settingsOf(config)
 				if (!settings.tools.has(exec.name)) return next()
+				// A tool execution is the one moment the loader is provably free,
+				// so it doubles as the retry for an install the load could not
+				// land. A no-op once the preset is there.
+				ensurePreset()
 				const command = commandArgument(exec.arguments)
 				if (command === undefined || command.trim().length === 0) return next()
 				if (exec.agent === undefined) {

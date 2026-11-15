@@ -33,7 +33,7 @@ function fakeEditor(presets, options = {}) {
 	const config = { presets: { ...presets } }
 	const editor = {
 		entries: () => (options.noRow ? [] : [ENTRY]),
-		configuration: () => [{ entry: ENTRY, inherited: {}, override: config }],
+		configuration: () => (options.noRow ? [] : [{ entry: ENTRY, inherited: {}, override: config }]),
 		async edit(entry, change) {
 			calls.push(entry)
 			if (options.throws) throw new Error('edit failed')
@@ -126,6 +126,10 @@ test('removing without a workspace-write to fall back to drops the default', asy
 })
 
 test('a missing permission row skips instead of writing', async () => {
+	// Found through `configuration()`, not `entries()`: the live entry list is
+	// filtered to rows whose parent fiber is the `include` root, which the
+	// permission row does not satisfy in this profile — so it is absent from
+	// `entries()` while `configuration()` still reports it.
 	const { ctx, calls } = fakeEditor({}, { noRow: true })
 	assert.equal(await installPreset(ctx), 'skipped')
 	assert.equal(await removePreset(ctx), 'skipped')
@@ -153,12 +157,30 @@ test('a failing write surfaces as a rejection, not a load failure', async () => 
 	await assert.rejects(() => removePreset(remove.ctx), /edit failed/)
 })
 
+test('a removal the loader refuses surfaces as a rejection', async () => {
+	// The unload transaction never closes, so the removal usually cannot land.
+	// It has to reject rather than pretend it worked, so the caller can log it
+	// and the preset is left in the safe state.
+	const { ctx } = fakeEditor(
+		{
+			'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+			[GUARDED_PRESET]: GUARDED_PRESET_SPEC,
+		},
+		{ throws: true },
+	)
+	await assert.rejects(() => removePreset(ctx), /edit failed/)
+})
+
 test('the entry is found by name and by id', () => {
 	const byName = fakeEditor({})
 	assert.equal(findPresetEntry(byName.ctx), ENTRY)
 
+	// The id alone is enough when the package has been renamed upstream, which
+	// is the fallback that keeps the preset managed across a rename.
 	const byId = fakeEditor({})
-	byId.ctx.configEditor.entries = () => [{ options: { id: 'permission', name: 'some-other-package' } }]
+	byId.ctx.configEditor.configuration = () => [
+		{ entry: { options: { id: 'permission', name: 'some-other-package' } }, inherited: {}, override: { presets: {} } },
+	]
 	assert.equal(findPresetEntry(byId.ctx)?.options?.id, 'permission')
 })
 
@@ -181,4 +203,44 @@ test('the spec is the one the guard gates on', () => {
 	// preset sets. If the two ever drift, the preset stops arming the guard.
 	assert.equal(GUARDED_PRESET_SPEC.sandbox, 'danger-full-access')
 	assert.equal(GUARDED_PRESET_SPEC.approval, 'ask')
+})
+
+test('a write blocked by the loader is retried, then lands', async () => {
+	// The live loader refuses to nest an HMR transaction, and the one enabling
+	// this plugin outlives a macrotask — so a write attempted during the effect's
+	// setup fails, and only a later attempt lands. The retry has to survive the
+	// nesting error and give up on anything else.
+	let calls = 0
+	const editor = {
+		entries: () => [],
+		configuration: () => [{ entry: ENTRY, inherited: {}, override: config }],
+		async edit(entry, change) {
+			calls++
+			if (calls < 3) throw new Error('HMR transactions cannot be nested')
+			const next = change(structuredClone(config), {})
+			for (const key of Object.keys(config)) delete config[key]
+			Object.assign(config, next)
+		},
+	}
+	const ctx = { configEditor: editor, logger: { warn: () => {} } }
+	const config = { presets: { 'workspace-write': { sandbox: 'workspace-write', approval: 'ask' } } }
+	assert.equal(await installPreset(ctx), 'written')
+	assert.equal(calls, 3, 'the write should have been retried past the nesting error')
+	assert.ok(config.presets[GUARDED_PRESET] !== undefined)
+})
+
+test('a write rejected for any other reason is not retried', async () => {
+	// A shadowed row or a failed validation is a real answer; retrying it would
+	// only delay telling the user.
+	let calls = 0
+	const editor = {
+		entries: () => [],
+		configuration: () => [{ entry: ENTRY, inherited: {}, override: { presets: {} } }],
+		async edit() {
+			calls++
+			throw new Error('Configuration for "permission" is overridden by a home patch')
+		},
+	}
+	await assert.rejects(() => installPreset({ configEditor: editor, logger: { warn: () => {} } }), /overridden/)
+	assert.equal(calls, 1)
 })

@@ -56,7 +56,7 @@ window.__ModuleLoader__.load({
 				'Off (the default) guards only sessions whose effective permission is full sandbox plus ask — the guarded-full preset — so an existing preset behaves exactly as before. On guards every session regardless of preset, sandbox or approval policy.',
 			managePreset: 'Manage the guarded-full preset',
 			managePresetHint:
-				'On (the default) adds the guarded-full preset while this plugin is enabled and removes it when the plugin is disabled, so there is nothing to edit by hand. Off leaves your preset table alone: maintain the preset yourself in the profile patch, as README.md describes.',
+				'On (the default) adds the guarded-full preset while this plugin is enabled, so there is nothing to edit by hand. Removing it again when the plugin is disabled is best-effort — the loader will not take a config write while it is unloading this plugin — so a preset left behind is normal; delete it from the profile patch by hand. Off leaves your preset table alone: maintain the preset yourself, as README.md describes.',
 			rules: 'Built-in rules',
 			rulesHint:
 				'A switched-off rule no longer asks: a command that matches it is released. The audit still records that the rule matched.',
@@ -120,7 +120,7 @@ window.__ModuleLoader__.load({
 				'关闭（默认）时，只有有效权限为「全沙箱 + 询问」的会话——即守卫式全权限预设——才启用守卫，现有预设行为完全不变；开启后在任何预设、任何权限下都生效。',
 			managePreset: '托管守卫式全权限预设',
 			managePresetHint:
-				'开启（默认）时，本插件启用期间会自动加入「守卫式全权限」预设，禁用插件时自动移除，无需手工编辑。关闭则不动你的预设表：由你自己在 profile patch 里维护该预设，见 README.md。',
+				'开启（默认）时，本插件启用期间会自动加入「守卫式全权限」预设，无需手工编辑。禁用插件时移除它是尽力而为——loader 在卸载本插件期间不接受配置写入——所以预设留下来是正常现象，从 profile patch 里手工删掉即可。关闭则不动你的预设表：由你自己维护该预设，见 README.md。',
 			rules: '内置规则',
 			rulesHint: '关掉某条规则后，命中它不再询问、直接放行；审计仍会记录这条规则命中过。',
 			patterns: '自定义规则正则',

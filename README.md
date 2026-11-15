@@ -50,25 +50,27 @@ reports as `custom`.
 
 ### The preset is managed for you
 
-By default this plugin adds `guarded-full` to your preset table while it is enabled
-and removes it when the plugin is disabled, so there is nothing to edit by hand. The
-write goes to your profile's own `cordis.patch.yml` — the same file you would edit
-yourself, through the same path the **Plugins** page uses for any other setting — so
-it stays visible and reviewable, and a disable puts it back the way it was.
+By default this plugin adds `guarded-full` to your preset table while it is enabled, so there is nothing to edit by hand. The write goes to your profile's own `cordis.patch.yml` — the same file you would edit yourself, through the same path the **Plugins** page uses for any other setting — so it stays visible and reviewable.
 
-Pick **Guarded full access** in the composer's permission picker, or run
-`/permission guarded-full`.
+Pick **Guarded full access** in the composer's permission picker, or run `/permission guarded-full`.
 
 Two things the management does deliberately:
 
-- **It only ever adds or removes `guarded-full`.** Every other key in that row's
+- **It only ever adds `guarded-full`.** Every other key in that row's
   config — the stock presets, `defaultPreset` — is restated unchanged, because a
   patch's `config` is *replaced wholesale, never deep-merged*.
-- **It will not delete a preset you have edited.** If you relabel or retune
-  `guarded-full`, it is yours; the plugin leaves it alone and stops managing that
-  name. If the default preset happens to point at it when the plugin is disabled,
-  the default moves to `workspace-write`, because the permission service refuses to
-  load with a default that is not in the table.
+- **It will not touch a preset you have edited.** If you relabel or retune
+  `guarded-full`, it is yours; the plugin leaves it alone. If the default preset
+  happens to point at it when the plugin is disabled, the default moves to
+  `workspace-write`, because the permission service refuses to load with a default
+  that is not in the table.
+
+**Removing the preset when you disable the plugin is best-effort.** A preset
+cannot be written while the loader is mid-transaction, and the transaction that
+unloads this plugin never closes — so the removal usually cannot land, and the
+preset stays behind. That is the safe direction: the guard keeps working under
+it, and re-enabling the plugin finds it already there. To remove it by hand,
+delete the `guarded-full` entry from the `permission` row of your profile patch.
 
 ### Managing the preset yourself
 
@@ -133,7 +135,7 @@ edited on that row:
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `global` | `false` | Off guards only the sessions described above; on guards every session |
-| `managePreset` | `true` | On adds the guarded-full preset while this plugin is enabled and removes it on disable; off leaves the preset table to you |
+| `managePreset` | `true` | On adds the guarded-full preset while this plugin is enabled; removing it on disable is best-effort; off leaves the preset table to you |
 | `tools` | `pwsh`, `bash`, `terminal`, `pwsh_persistent`, `bash_persistent`, `ops_bash` | Tool names this guard takes over, one per line |
 | `dialect` | `auto` | `auto` infers the dialect from the tool name; or force `posix`, `cmd`, `powershell` |
 | `onUnsupported` | `allow` | `allow` or `ask` when no static verdict is possible |

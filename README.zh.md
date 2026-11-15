@@ -34,7 +34,7 @@ DeepSeek Harness 的纯本地命令规则守卫。它监听 `tools/pre-execute`�
 
 ### 预设由插件托管
 
-默认情况下，本插件启用期间会自动往预设表里加入 `guarded-full`，禁用插件时自动移除，无需手工编辑。写入落在你自己 profile 的 `cordis.patch.yml`——也就是你本来会手工改的那个文件，走的是**插件**页写任何其他设置的同一条路径——因此始终可见、可 review，禁用后也会原样还原。
+默认情况下，本插件启用期间会自动往预设表里加入 `guarded-full`，无需手工编辑。写入落在你自己 profile 的 `cordis.patch.yml`——也就是你本来会手工改的那个文件，走的是**插件**页写任何其他设置的同一条路径——因此始终可见、可 review。
 
 在 composer 的权限选择器里选**守卫式全权限**，或执行 `/permission guarded-full`。
 
@@ -42,6 +42,8 @@ DeepSeek Harness 的纯本地命令规则守卫。它监听 `tools/pre-execute`�
 
 - **只增删 `guarded-full` 这一项。** 该行 config 里的其他键——自带预设、`defaultPreset`——都原样带回，因为 patch 的 `config` 是*整块替换，绝不深合并*。
 - **不会删掉你改过的预设。** 如果你改过 `guarded-full` 的名字或内容，它就是你的；插件不再管这个名字。如果禁用插件时默认预设正指着它，默认会改回 `workspace-write`——权限服务不允许默认预设不在表里。
+
+**禁用插件时移除预设是尽力而为。** loader 处于事务中时无法写入配置，而卸载本插件的那个事务始终不会关闭——所以移除通常落不了盘，预设会留下来。这是安全的方向：守卫在它之下继续有效，重新启用插件时也会发现它已在。想手工移除，从 profile patch 的 `permission` 行里删掉 `guarded-full` 即可。
 
 ### 自己维护预设
 
@@ -94,7 +96,7 @@ dsh plugin --profile desktop add github:lliangworld/dsh-rule-guard
 | 字段 | 默认值 | 含义 |
 | --- | --- | --- |
 | `global` | `false` | 关闭只守卫上文所述会话；开启则守卫所有会话 |
-| `managePreset` | `true` | 开启时本插件启用期间自动加入 `guarded-full` 预设、禁用时移除；关闭则由你自己维护预设表 |
+| `managePreset` | `true` | 开启时本插件启用期间自动加入 `guarded-full` 预设；禁用时移除为尽力而为；关闭则由你自己维护预设表 |
 | `tools` | `pwsh`、`bash`、`terminal`、`pwsh_persistent`、`bash_persistent`、`ops_bash` | 接管的工具名，每行一个 |
 | `dialect` | `auto` | `auto` 按工具名推断方言；或强制 `posix`、`cmd`、`powershell` |
 | `onUnsupported` | `allow` | 无法静态判定时 `allow` 或 `ask` |
