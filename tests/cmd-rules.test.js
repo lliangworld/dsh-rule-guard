@@ -1,3 +1,23 @@
+/**
+ * Copyright 2026 Z.AI Co., Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Modified by lliangworld for @lliangworld/dsh-rule-guard: rewritten to `node:test`, with the rule
+ *                                                          ids and copy localized for this bundle.
+ * The upstream attribution and the Apache License 2.0 text are in
+ * THIRD-PARTY-NOTICES.md.
+ */
+/**
+ * The CMD command corpus, ported from ZCode's guarded-deletion tests
+ * (`apps/zcode-cli/packages/core/tests/guarded-deletion.test.ts`), which pairs
+ * each rule with the command forms that must and must not match. The pairing is
+ * preserved here, with the rule ids and reasons localized.
+ */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { analyzeCommand } from '../lib/analyze.js'

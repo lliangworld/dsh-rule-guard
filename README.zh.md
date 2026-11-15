@@ -242,10 +242,21 @@ node --test         # 同一批用例，每个文件一个子进程
 <a id="致谢"></a>
 ## 致谢
 
-POSIX、CMD 与 git 规则体移植自 ZCode 的 guarded matcher
-（`apps/zcode-cli/packages/core/src/tool/handlers/guarded/`），本插件保留了它的注释与对抗测试语料。PowerShell 规则族参照 `dsh-ps-preflight` 文档化的分类方式。
+规则引擎衍生自 ZCode 的 guarded matcher
+（`apps/zcode-cli/packages/core/src/tool/handlers/guarded/` 及其测试），采用
+Apache License 2.0，© 2026 Z.AI Co., Ltd。十个衍生文件列在
+[NOTICE.md](NOTICE.md) 中，每个文件顶部都带上游版权头与改动说明。
+Apache License 2.0 全文见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
+
+另有两项契约只参照、未复制代码，同样记录在上述两个文件中：
+`lib/posix-splitter.js` 重新实现了 `unbash`（ISC，© Lars Kappert）的可观察契约；
+`lib/powershell.js` 参照 `dsh-ps-preflight` 文档化的规则族分类。
 
 <a id="许可"></a>
 ## 许可
 
-MIT
+本项目自有代码为 MIT，© 2026 lliangworld。
+
+衍生自 ZCode 的部分为 Apache-2.0，仍受该许可条款约束。
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 收录 Apache License 2.0 全文与
+`unbash` 的 ISC 文本；[NOTICE.md](NOTICE.md) 列出哪些文件衍生自什么。

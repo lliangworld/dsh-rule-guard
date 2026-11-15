@@ -1,3 +1,13 @@
+This license covers this project's own code.
+
+Portions of this project are derived from ZCode's guarded command matcher, which
+is licensed under the Apache License, Version 2.0 and is © 2026 Z.AI Co., Ltd.
+Those portions — the files listed in NOTICE.md, each of which carries its own
+upstream header — remain subject to the Apache License terms, and the license
+text is reproduced in THIRD-PARTY-NOTICES.md.
+
+-----
+
 MIT License
 
 Copyright (c) 2026 lliangworld

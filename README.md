@@ -323,12 +323,24 @@ prompt outlives the plugin that raised it.
 <a id="attribution"></a>
 ## Attribution
 
-The POSIX, CMD and git rule bodies are ported from ZCode's guarded matcher
-(`apps/zcode-cli/packages/core/src/tool/handlers/guarded/`), whose comments and
-adversarial test corpus this plugin keeps. The PowerShell families follow the
-classification documented for `dsh-ps-preflight`.
+The rule engine is derived from ZCode's guarded command matcher
+(`apps/zcode-cli/packages/core/src/tool/handlers/guarded/` and its tests), which
+is licensed under the Apache License, Version 2.0 and is © 2026 Z.AI Co., Ltd.
+The ten derived files are listed in [NOTICE.md](NOTICE.md), and each carries the
+upstream's copyright header plus a note of what changed. The Apache License 2.0
+text is in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+Two further contracts are followed without copying code, and are recorded in the
+same files: `lib/posix-splitter.js` reimplements the observable contract of
+`unbash` (ISC, © Lars Kappert), and `lib/powershell.js` follows the rule families
+documented for `dsh-ps-preflight`.
 
 <a id="license"></a>
 ## License
 
-MIT
+This project's own code is MIT, © 2026 lliangworld.
+
+The portions derived from ZCode are Apache-2.0 and remain subject to that
+license's terms. [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) carries the
+Apache License 2.0 text and the ISC text for `unbash`;
+[NOTICE.md](NOTICE.md) lists which files are derived from what.

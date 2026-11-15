@@ -24,7 +24,10 @@
     "docs",
     "icon.svg",
     "README.md",
-    "README.zh.md"
+    "README.zh.md",
+    "LICENSE",
+    "NOTICE.md",
+    "THIRD-PARTY-NOTICES.md"
   ],
   "icon": "./icon.svg",
   "license": "MIT",
