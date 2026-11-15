@@ -161,7 +161,20 @@ test('the card stages every field through the form model', () => {
 	// and each switch reads its position from the scope snapshot.
 	for (const field of booleans) {
 		assert.ok(client.includes(`primitives.settingsTextField('${field}')`), `no spec for "${field}"`)
+		// Without a parse that converts the text back to a boolean, the switch
+		// stages the *string* 'false'. The Host refuses that at validation,
+		// because the schema declares a boolean, and the save is rejected with
+		// the deployment's generic refusal. Keenable's own `live` field ships
+		// the same conversion, which is how a boolean field saves at all.
+		assert.ok(
+			client.includes(`primitives.settingsTextField('${field}'), parse: booleanText`),
+			`"${field}" has no boolean parse, so its switch stages a string and the save is refused`,
+		)
 	}
+	assert.ok(
+		/function booleanText\(text\) \{[\s\S]*?value === 'true'[\s\S]*?value === 'false'/.test(client),
+		'booleanText does not convert both directions',
+	)
 	assert.match(client, /scopeValue\(this\.scope, field\)/)
 })
 
@@ -471,34 +484,18 @@ test('the two dictionaries declare the same keys', () => {
 test('the detail page shows one image and nothing else', () => {
 	// The plugin detail page renders `meta.detail` verbatim. The documented
 	// shape is exactly one image line; prose there is what the README is for.
-	for (const [locale, file, image] of [
-		['en', 'docs/DETAIL.md', 'preview.svg'],
-		['zh', 'docs/DETAIL.zh.md', 'preview.zh.svg'],
+	// The images themselves are asserted in tests/preview.test.js, which owns
+	// them: what matters here is that each document is that one line.
+	for (const [file, image] of [
+		['docs/DETAIL.md', 'preview.png'],
+		['docs/DETAIL.zh.md', 'preview.zh.png'],
 	]) {
 		const text = read(file).trim()
 		const lines = text.split('\n')
 		assert.equal(lines.length, 1, `${file} must hold exactly one line, found ${lines.length}`)
-		assert.match(lines[0], /^!\[[^\]]+\]\(preview(\.zh)?\.svg\)$/, `${file} is not one image line`)
+		assert.match(lines[0], /^!\[[^\]]+\]\(preview(\.zh)?\.png\)$/, `${file} is not one image line`)
 		assert.ok(existsSync(path.join(root, 'docs', image)), `docs/${image} is missing`)
 	}
-})
-
-test('the preview images are sized and text-free', () => {
-	// The detail page reserves a 640x300 frame, and an SVG that carries `text`
-	// elements depends on fonts the host may not have. `foreignObject` and
-	// scripting are worse: they are how an image escapes its frame.
-	for (const image of ['preview.svg', 'preview.zh.svg']) {
-		const svg = read(`docs/${image}`)
-		assert.match(svg, /width="640"/, `${image} is not 640 wide`)
-		assert.match(svg, /height="300"/, `${image} is not 300 tall`)
-		assert.match(svg, /viewBox="0 0 640 300"/, `${image} has the wrong viewBox`)
-		assert.ok(!/<text[\s>]/.test(svg), `${image} carries a text element`)
-		assert.ok(!/<foreignObject[\s>]/.test(svg), `${image} carries a foreignObject`)
-		assert.ok(!/<script[\s>]/.test(svg), `${image} carries a script`)
-		assert.ok(!/<animate[\s>]/.test(svg), `${image} carries an animation`)
-	}
-	// The size cap the host enforces on a detail image.
-	assert.ok(read('docs/preview.svg').length < 5 * 1024 * 1024, 'preview.svg exceeds the host cap')
 })
 
 test('the locale description stays a summary, not a page', () => {

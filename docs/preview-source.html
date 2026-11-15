@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rule-guard preview source</title>
+<!--
+  Source of the plugin's detail image. This file is the single source of truth:
+  the two rendered PNGs are produced from the scene below by
+
+    <bundled python> docs/render-preview.py
+
+  Open this file to see the artwork live, switch the page between light and
+  dark, and check the 390px narrow column below — the plugin detail page is
+  readable at that width. Edit the scene JSON and re-run the script; both the
+  preview here and the rendered PNGs follow it.
+
+  Coordinates are canvas units on the 640x300 detail canvas. Keep important
+  content about 32 units from the edges. The panel is an opaque dark surface so
+  it renders identically over the light and dark themes, which is why the page
+  background switch below changes only the surrounding page, never the artwork.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font: 14px/1.5 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #f5f6fc; color: #0f1115;
+    padding: 24px; box-sizing: border-box;
+  }
+  body.dark { background: #15171b; color: #ebf2ff; }
+  .bar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+  .bar button {
+    font: inherit; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid rgba(0,0,0,.14); background: #fff; color: inherit;
+  }
+  body.dark .bar button { border-color: rgba(255,255,255,.16); background: #232326; }
+  .bar span { opacity: .65; font-size: 13px; }
+  #stage { width: 640px; max-width: 100%; }
+  #stage svg { display: block; width: 100%; height: auto; border-radius: 18px; }
+  #narrow { width: 390px; max-width: 100%; margin-top: 28px; }
+  #narrow svg { display: block; width: 100%; height: auto; border-radius: 12px; }
+  h2 { font-size: 15px; margin: 0 0 10px; opacity: .75; font-weight: 600; }
+  .note { margin-top: 12px; font-size: 13px; opacity: .6; max-width: 640px; }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <button id="toggle" type="button">Switch to dark page</button>
+  <span>Detail canvas is 640&times;300. Both PNGs are rendered from the scene below.</span>
+</div>
+
+<h2>Detail canvas</h2>
+<div id="stage"></div>
+
+<h2>390px narrow column — what the plugin detail page shows</h2>
+<div id="narrow"></div>
+
+<p class="note">
+  Left: the permission seat with the plugin's own preset selected. Right: the
+  approval panel, whose distinguishing feature is that it never times out. Bottom:
+  the local rule set and the three verdicts it can return. The opaque dark panel
+  keeps the artwork identical over both themes.
+</p>
+
+<script type="application/json" id="scene">
+{
+  "width": 640,
+  "height": 300,
+  "panel": { "x": 0, "y": 0, "w": 640, "h": 300, "r": 18, "fill": "#1a1c21" },
+
+  "text": {
+    "en": {
+      "seat": "Guarded full access",
+      "presets": ["Read Only", "Workspace Write", "Full access", "Guarded full access"],
+      "panelTitle": "Run this command?",
+      "panelCommand": "rm -rf node_modules",
+      "panelNote": "No timeout — waits for you",
+      "allow": "Allow",
+      "deny": "Deny",
+      "rules": "21 local rules",
+      "rulesNote": "judged on this machine, never online",
+      "release": "release",
+      "ask": "ask",
+      "denyVerdict": "deny"
+    },
+    "zh": {
+      "seat": "守卫式全权限",
+      "presets": ["仅可查看", "工作区内修改", "完全权限", "守卫式全权限"],
+      "panelTitle": "执行此命令？",
+      "panelCommand": "rm -rf node_modules",
+      "panelNote": "无倒计时，等待你的判断",
+      "allow": "允许",
+      "deny": "拒绝",
+      "rules": "21 条本地规则",
+      "rulesNote": "完全在本机判定，不联网",
+      "release": "放行",
+      "ask": "询问",
+      "denyVerdict": "拒绝"
+    }
+  },
+
+  "colors": {
+    "card": "#333842",
+    "cardSoft": "#2c303a",
+    "cardEdge": "#3d434f",
+    "select": "#4f8ef7",
+    "line": "#7c8496",
+    "text": "#ebf2ff",
+    "textDim": "#9aa3b4",
+    "shield": "#4f8ef7",
+    "ok": "#3fb950"
+  },
+
+  "seat": {
+    "x": 32, "y": 32, "h": 30,
+    "width": { "en": 232, "zh": 214 },
+    "menu": { "x": 32, "y": 70, "w": 232, "h": 116, "r": 10 },
+    "rows": 4, "rowH": 22, "rowGap": 4, "rowInset": 8,
+    "selected": 3,
+    "arrowOffset": 16,
+    "flow": { "x1": 272, "x2": 306, "y": 150 }
+  },
+
+  "approval": {
+    "x": 312, "y": 32, "w": 296, "h": 142, "r": 12,
+    "bar": { "h": 6, "fill": "#4f8ef7" },
+    "titleY": 62,
+    "command": { "x": 332, "y": 84, "w": 256, "h": 26, "r": 6 },
+    "noteY": 128,
+    "buttons": [
+      { "x": 332, "y": 140, "w": 82, "h": 26, "primary": true },
+      { "x": 422, "y": 140, "w": 82, "h": 26, "primary": false }
+    ]
+  },
+
+  "rules": {
+    "x": 32, "y": 196, "w": 576, "h": 72, "r": 12,
+    "shield": { "cx": 64, "cy": 230, "r": 18 },
+    "textX": 100,
+    "titleY": 222,
+    "noteY": 242,
+    "verdicts": [
+      { "mark": "check",  "x": 300, "cy": 230 },
+      { "mark": "ask",    "x": 404, "cy": 230 },
+      { "mark": "cross",  "x": 508, "cy": 230 }
+    ],
+    "verdictLabelY": 248
+  }
+}
+</script>
+
+<script>
+(function () {
+  const scene = JSON.parse(document.getElementById('scene').textContent);
+  const NS = 'http://www.w3.org/2000/svg';
+  // The PNG renderer draws the same geometry with Segoe UI and Microsoft YaHei.
+  const FONT = 'system-ui, "Segoe UI", "Microsoft YaHei", sans-serif';
+
+  function el(name, attrs) {
+    const node = document.createElementNS(NS, name);
+    for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, String(v));
+    return node;
+  }
+
+  /**
+   * The scene, drawn. The renderer in render-preview.py draws the same geometry
+   * with the same coordinates; keep the two in step.
+   */
+  function draw(lang) {
+    const T = scene.text[lang];
+    const C = scene.colors;
+    const svg = el('svg', { viewBox: `0 0 ${scene.width} ${scene.height}`, xmlns: NS });
+
+    // The opaque panel: identical over both themes.
+    const P = scene.panel;
+    svg.append(el('rect', { x: P.x, y: P.y, width: P.w, height: P.h, rx: P.r, fill: P.fill }));
+
+    // ---- left: the permission seat ----------------------------------------
+    const S = scene.seat;
+    const seatW = S.width[lang];
+    svg.append(el('rect', { x: S.x, y: S.y, width: seatW, height: S.h, rx: 15, fill: C.card, stroke: C.cardEdge }));
+    // shield glyph
+    svg.append(el('path', {
+      d: 'M44 40l9 3v7c0 6-4 9-9 11-5-2-9-5-9-11v-7l9-3Z', fill: C.shield, 'fill-opacity': '.22',
+      stroke: C.shield, 'stroke-width': 1.4, 'stroke-linejoin': 'round',
+    }));
+    svg.append(el('path', { d: 'M41 51l2.5 2.5 4.5-5', stroke: C.shield, 'stroke-width': 1.6, fill: 'none', 'stroke-linecap': 'round' }));
+    svg.append(el('text', { x: 62, y: 52, fill: C.text, 'font-size': 12, 'font-weight': 600, 'font-family': 'system-ui, "Segoe UI", "Microsoft YaHei", sans-serif' })).textContent = T.seat;
+    // chevron, inset from the seat's right edge whichever the language
+    const ax = S.x + seatW - S.arrowOffset;
+    svg.append(el('path', { d: `M${ax} 44l4 4-4 4`, stroke: C.textDim, 'stroke-width': 1.6, fill: 'none', 'stroke-linecap': 'round' }));
+
+    // the open menu
+    const M = S.menu;
+    svg.append(el('rect', { x: M.x, y: M.y, width: M.w, height: M.h, rx: M.r, fill: C.card, stroke: C.cardEdge }));
+    T.presets.forEach((label, i) => {
+      const y = M.y + S.rowInset + i * (S.rowH + S.rowGap);
+      const selected = i === S.selected;
+      svg.append(el('rect', { x: M.x + S.rowInset, y, width: M.w - S.rowInset * 2, height: S.rowH, rx: 6, fill: selected ? C.select : 'transparent' }));
+      if (selected) {
+        svg.append(el('path', {
+          d: `M${M.x + 18} ${y + 11}l3 3 6-6`, stroke: '#fff', 'stroke-width': 1.8, fill: 'none', 'stroke-linecap': 'round',
+        }));
+      }
+      const node = el('text', {
+        x: M.x + (selected ? 34 : S.rowInset + 8), y: y + S.rowH / 2 + 4,
+        fill: selected ? '#fff' : C.textDim, 'font-size': 11.5,
+        'font-weight': selected ? 600 : 400,
+        'font-family': 'system-ui, "Segoe UI", "Microsoft YaHei", sans-serif',
+      });
+      node.textContent = label;
+      svg.append(node);
+    });
+
+    // ---- the arrow from the seat to the panel -----------------------------
+    const F = S.flow;
+    svg.append(el('path', { d: `M${F.x1} ${F.y}h${F.x2 - F.x1 - 8}`, stroke: C.line, 'stroke-width': 2, 'stroke-linecap': 'round' }));
+    svg.append(el('path', { d: `M${F.x2 - 8} ${F.y - 5}l5 5-5 5`, stroke: C.line, 'stroke-width': 2, fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+
+    // ---- right: the approval panel ---------------------------------------
+    const A = scene.approval;
+    svg.append(el('rect', { x: A.x, y: A.y, width: A.w, height: A.h, rx: A.r, fill: C.card, stroke: C.cardEdge }));
+    // The accent bar, clipped to the card's rounded corners: a square-cornered
+    // bar over a rounded card visibly overhangs at both top corners.
+    const clipId = 'approval-clip';
+    const defs = el('defs', {});
+    const clip = el('clipPath', { id: clipId });
+    clip.append(el('rect', { x: A.x, y: A.y, width: A.w, height: A.h, rx: A.r }));
+    defs.append(clip);
+    svg.append(defs);
+    svg.append(el('rect', { x: A.x, y: A.y, width: A.w, height: A.bar.h, fill: A.bar.fill, 'clip-path': `url(#${clipId})` }));
+
+    const t1 = el('text', { x: A.x + 20, y: A.titleY, fill: C.text, 'font-size': 13, 'font-weight': 600, 'font-family': 'system-ui, "Segoe UI", "Microsoft YaHei", sans-serif' });
+    t1.textContent = T.panelTitle;
+    svg.append(t1);
+
+    const K = A.command;
+    svg.append(el('rect', { x: K.x, y: K.y, width: K.w, height: K.h, rx: K.r, fill: C.cardSoft }));
+    const t2 = el('text', { x: K.x + 12, y: K.y + 18, fill: C.text, 'font-size': 12, 'font-family': 'ui-monospace, Consolas, monospace' });
+    t2.textContent = T.panelCommand;
+    svg.append(t2);
+
+    // the hold sign: a ringed bar, deliberately not a clock face — no countdown.
+    svg.append(el('circle', { cx: A.x + 26, cy: A.noteY, r: 8, fill: 'none', stroke: C.ok, 'stroke-width': 1.6 }));
+    svg.append(el('path', { d: `M${A.x + 22} ${A.noteY}h8`, stroke: C.ok, 'stroke-width': 1.8, 'stroke-linecap': 'round' }));
+    const t3 = el('text', { x: A.x + 42, y: A.noteY + 4, fill: C.textDim, 'font-size': 11, 'font-family': 'system-ui, "Segoe UI", "Microsoft YaHei", sans-serif' });
+    t3.textContent = T.panelNote;
+    svg.append(t3);
+
+    A.buttons.forEach((b, i) => {
+      svg.append(el('rect', { x: b.x, y: b.y, width: b.w, height: b.h, rx: 7, fill: b.primary ? C.select : 'transparent', stroke: b.primary ? 'none' : C.cardEdge, 'stroke-width': 1.2 }));
+      const t = el('text', { x: b.x + b.w / 2, y: b.y + b.h / 2 + 4, fill: b.primary ? '#fff' : C.textDim, 'font-size': 11.5, 'font-weight': 600, 'text-anchor': 'middle', 'font-family': 'system-ui, "Segoe UI", "Microsoft YaHei", sans-serif' });
+      t.textContent = i === 0 ? T.allow : T.deny;
+      svg.append(t);
+    });
+
+    // ---- bottom: the local rules -----------------------------------------
+    const R = scene.rules;
+    svg.append(el('rect', { x: R.x, y: R.y, width: R.w, height: R.h, rx: R.r, fill: C.cardSoft, stroke: C.cardEdge }));
+    const S2 = R.shield;
+    const sr = S2.r;
+    svg.append(el('path', {
+      d: `M${S2.cx - sr} ${S2.cy - sr * 0.65}L${S2.cx} ${S2.cy - sr}L${S2.cx + sr} ${S2.cy - sr * 0.65}V${S2.cy + sr * 0.1}L${S2.cx} ${S2.cy + sr * 0.35}L${S2.cx - sr} ${S2.cy + sr * 0.1}Z`,
+      fill: C.shield, 'fill-opacity': '.18', stroke: C.shield, 'stroke-width': 1.8, 'stroke-linejoin': 'round',
+    }));
+    svg.append(el('path', { d: `M${S2.cx - sr * 0.42} ${S2.cy - sr * 0.1}l${sr * 0.28} ${sr * 0.28} ${sr * 0.56}-${sr * 0.56}`, stroke: C.shield, 'stroke-width': 2.4, fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+
+    const rt = el('text', { x: R.textX, y: R.titleY, fill: C.text, 'font-size': 12, 'font-weight': 600, 'font-family': FONT });
+    rt.textContent = T.rules;
+    svg.append(rt);
+    const rs = el('text', { x: R.textX, y: R.noteY, fill: C.textDim, 'font-size': 10, 'font-family': FONT });
+    rs.textContent = T.rulesNote;
+    svg.append(rs);
+
+    R.verdicts.forEach((v) => {
+      const cx = v.x, cy = v.cy;
+      svg.append(el('circle', { cx, cy, r: 13, fill: 'none', stroke: C.cardEdge, 'stroke-width': 1.2 }));
+      if (v.mark === 'check') {
+        svg.append(el('path', { d: `M${cx - 5} ${cy}l4 4 7-8`, stroke: C.ok, 'stroke-width': 2, fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+      } else if (v.mark === 'ask') {
+        svg.append(el('path', { d: `M${cx - 4} ${cy - 3}Q${cx} ${cy - 7} ${cx + 4} ${cy - 3}V${cy}Q${cx} ${cy + 3} ${cx} ${cy + 6}`, stroke: '#e8a33d', 'stroke-width': 1.8, fill: 'none', 'stroke-linecap': 'round' }));
+        svg.append(el('circle', { cx, cy: cy + 9, r: 1.2, fill: '#e8a33d' }));
+      } else {
+        svg.append(el('path', { d: `M${cx - 4} ${cy - 4}l8 8M${cx + 4} ${cy - 4}l-8 8`, stroke: '#e5534b', 'stroke-width': 2, fill: 'none', 'stroke-linecap': 'round' }));
+      }
+      const t = el('text', { x: cx, y: R.verdictLabelY, fill: C.textDim, 'font-size': 10, 'text-anchor': 'middle', 'font-family': FONT });
+      t.textContent = v.mark === 'check' ? T.release : v.mark === 'ask' ? T.ask : T.denyVerdict;
+      svg.append(t);
+    });
+
+    return svg;
+  }
+
+  document.getElementById('stage').append(draw('en'));
+  document.getElementById('narrow').append(draw('zh'));
+
+  const button = document.getElementById('toggle');
+  button.addEventListener('click', () => {
+    document.body.classList.toggle('dark');
+    button.textContent = document.body.classList.contains('dark')
+      ? 'Switch to light page'
+      : 'Switch to dark page';
+  });
+})();
+</script>
+</body>
+</html>

@@ -35,7 +35,7 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { analyzeCommand, dialectForTool } from './lib/analyze.js'
 import { AuditLog, expandPath } from './lib/audit.js'
 import { auditReason, displayReason } from './lib/catalog.js'
-import { installPreset, removePreset } from './lib/preset.js'
+import { installPresetWhenLoaded, relabelPreset, removePresetWhenUnloaded } from './lib/preset.js'
 
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -74,7 +74,7 @@ export const Config = z.object({
 		.boolean()
 		.default(true)
 		.volatile()
-		.description('Whether enabling this plugin adds the guarded-full permission preset, so there is nothing to edit by hand. Removing it again when the plugin is disabled is best-effort: the loader will not accept a config write while it is unloading this plugin. Off leaves the preset table alone: you maintain the preset yourself in the profile patch, as documented in README.md.'),
+		.description('Whether enabling this plugin adds the guarded-full permission preset, and disabling it removes it again. Uninstalling does not remove it: the guard is unloaded either way, so the leftover preset is inert. Off leaves the preset table alone: you maintain the preset yourself in the profile patch, as documented in README.md.'),
 	tools: z
 		.array(z.string())
 		.default(DEFAULT_TOOLS)
@@ -237,58 +237,151 @@ export function apply(ctx, config) {
 	// enabled it owns a `guarded-full` preset through the config editor, the
 	// same path the Plugins page uses.
 	//
-	// The write cannot happen during this effect's setup. `edit` reconciles the
-	// loader, which opens its own HMR transaction, and the loader refuses to
-	// nest them: called here it fails with "HMR transactions cannot be nested",
-	// and the transaction that is enabling this plugin outlives both a macrotask
-	// and seconds of retrying. The same call succeeds from a tool execution,
-	// which runs long after the loader has settled — so the install is attempted
-	// here and again from the guard's own listener, and whichever lands first
-	// wins while the other finds the preset already present.
+	// The install cannot happen during this effect's setup. `edit` reconciles the
+	// loader, which opens its own HMR transaction, and the loader refuses to nest
+	// them: called here it fails with "HMR transactions cannot be nested", and the
+	// transaction that is enabling this plugin outlives both a macrotask and
+	// seconds of retrying. Escaping the transaction's async context makes
+	// `runExclusive` queue the write instead, where it runs once the transaction
+	// finishes — so enabling the plugin takes effect on its own, with no command
+	// needing to run first. The listener's call is the fallback for a write that
+	// did not land.
 	//
 	// The install is never awaited, because `edit` reloads the affected row and
 	// blocking `apply` on that would delay every other plugin's startup for a
-	// write whose only failure mode is a preset that stays absent. The removal is
-	// awaited, but it is best-effort by necessity: the transaction that unloads
-	// this plugin never closes, and no listener runs once the fiber is gone, so
-	// the preset usually stays behind — the safe direction, since the guard keeps
-	// working under it and the next enable finds it already present.
+	// write whose only failure mode is a preset that stays absent.
+	//
+	// The removal is the mirror image, and the reason it is fire-and-forget is
+	// worth stating plainly: an unload of this plugin is itself an HMR
+	// transaction, and `configEditor.edit` ends in `hmr.runExclusive`, which
+	// either rejects a nested call or queues one on the loader's operation queue.
+	// Queuing is what we want, but awaiting that queue waits for the very
+	// transaction the teardown is blocking — a deadlock that hangs the host.
+	// So the write is queued and abandoned: the teardown returns at once, the
+	// unload finishes, the queue drains, and the preset is removed a moment
+	// later. A host that shuts down in that window leaves the preset behind,
+	// which is harmless — the guard is gone, and the next enable finds it
+	// already present.
 	let presetManaged = false
 
-	/** Make sure the preset exists, at most until it does. */
+	/**
+	 * Make sure the preset exists, at most until it does.
+	 *
+	 * The write is queued past the transaction that is enabling this plugin,
+	 * because retrying inside that transaction can never succeed — and awaiting
+	 * the queue would deadlock the activation. See `installPresetWhenLoaded`.
+	 */
 	const ensurePreset = () => {
 		if (presetManaged || config.managePreset.get() === false) return
-		installPreset(ctx)
-			.then((outcome) => {
-				if (outcome === 'written' || outcome === 'present') presetManaged = true
-				else {
-					ctx.logger?.warn?.(
-						'rule-guard: no permission preset row to manage; add guarded-full to the profile patch yourself, see README.md',
-					)
-				}
-			})
-			.catch((error) => {
-				ctx.logger?.warn?.(`rule-guard: could not add the guarded-full preset: ${String(error)}`)
-			})
+		const outcome = installPresetWhenLoaded(ctx, (message) => ctx.logger?.warn?.(message))
+		if (outcome === 'present' || outcome === 'skipped') {
+			// `skipped` means there is no permission row to write to, which will
+			// not fix itself; say so once rather than on every command.
+			if (outcome === 'skipped') {
+				ctx.logger?.warn?.(
+					'rule-guard: no permission preset row to manage; add guarded-full to the profile patch yourself, see README.md',
+				)
+			}
+			presetManaged = true
+			return
+		}
+		if (outcome === 'failed') return
+		// The write is in flight. Clearing the flag again is what lets the next
+		// command notice a preset that failed to land.
+		presetManaged = false
 	}
 
 	ctx.effect(function* () {
-		if (config.managePreset.get() === false) {
-			yield () => {}
-			return
+		// Install on activation, unless the user has the management off. A
+		// plugin that comes up with the switch off stays off until the toggle
+		// effect below sees the user turn it on.
+		if (config.managePreset.get() !== false) {
+			ensurePreset()
+			// The preset is added in whatever language the host was already
+			// running in, so an install under a Chinese host starts out Chinese
+			// rather than waiting for the first language change.
+			relabelPreset(ctx, (message) => ctx.logger?.warn?.(message))
 		}
-		ensurePreset()
-		yield async () => {
+		// The teardown is unconditional. The switch can be turned on while the
+		// plugin stays enabled, which adds the preset, and it has to come back
+		// out when the plugin is disabled. Removing a slot that is already
+		// empty is a no-op, so paying for it unconditionally costs nothing.
+		yield () => {
 			presetManaged = false
-			try {
-				await removePreset(ctx)
-			} catch (error) {
-				// The preset stays behind, which is the safe direction: the guard
-				// keeps working under it, and the user can remove it by hand.
-				ctx.logger?.warn?.(`rule-guard: could not remove the guarded-full preset: ${String(error)}`)
-			}
+			removePresetWhenUnloaded(ctx, (message) => ctx.logger?.warn?.(message))
 		}
 	}, 'rule-guard: managed preset')
+
+	// The toggle, for as long as the plugin stays enabled.
+	//
+	// `managePreset` is volatile, so a change to it does not restart this fiber
+	// and the effect above never re-runs — which is why the switch used to do
+	// nothing in either direction. Restarting the fiber to fix that would
+	// re-register the `tools/pre-execute` listener, and a command executing
+	// across that boundary could be missed or judged twice, so the toggle
+	// listens instead.
+	//
+	// `app-boot/config-reload` covers every write the Plugins page makes.
+	// `dsh-settings` reacts to the same event for the same reason: a cached
+	// projection went stale.
+	//
+	// It is *not* a "the write has settled" signal, which matters here. It is
+	// emitted from inside `recompose()`, which `configEditor.edit` calls while
+	// it still holds the HMR exclusive transaction — so this listener runs with
+	// that transaction open. The writes below therefore go through
+	// `hmr.executing.exit`, which clears the transaction context for the
+	// callback; the editor's `runExclusive` then queues the write behind the
+	// transaction that is already running rather than refusing it as nested.
+	// The queued write is deliberately not awaited: awaiting it from here would
+	// wait on the very transaction this listener is standing inside.
+	//
+	// Comparing against the value last acted on is what keeps this from
+	// re-entering itself — this plugin's own writes to the `permission` row
+	// emit this event too, and they do not move `managePreset`.
+	// The listener is registered whatever the switch says at activation. A
+	// plugin enabled with `managePreset` off must still notice the user turning
+	// it on later — guarding the registration on the field's current value
+	// leaves that path with nobody listening, and the switch then does nothing
+	// for the rest of the plugin's life.
+	//
+	// `managed` starts at the value the plugin came up with, so the first event
+	// only acts on a real change. Events that do not move the field — this
+	// plugin's own writes to the `permission` row emit the same event — return
+	// at the comparison without touching anything.
+	ctx.effect(function* () {
+		let managed = config.managePreset.get() !== false
+		const stopListener = ctx.on('app-boot/config-reload', () => {
+			const manage = config.managePreset.get() !== false
+			if (manage === managed) return
+			managed = manage
+			if (manage) {
+				presetManaged = false
+				ensurePreset()
+				return
+			}
+			presetManaged = false
+			removePresetWhenUnloaded(ctx, (message) => ctx.logger?.warn?.(message))
+		})
+		yield stopListener
+	}, 'rule-guard: managed preset toggle')
+
+	// The label follows the language. `settings/document-updated` is emitted for
+	// the locale row when its config changes, which is exactly when the user
+	// switches the language in Settings; filtering to that namespace keeps the
+	// plugin's own writes to the permission row from re-entering here.
+	//
+	// Registered whatever the switch says at activation, for the same reason as
+	// the toggle above: a preset added later still has to follow the language.
+	// `relabelPreset` returns without writing when the slot is empty, so a
+	// language change under a plugin that is not managing anything costs one
+	// read and no write.
+	ctx.effect(function* () {
+		const stopListener = ctx.on('settings/document-updated', (ns) => {
+			if (ns !== 'locale') return
+			relabelPreset(ctx, (message) => ctx.logger?.warn?.(message))
+		})
+		yield stopListener
+	}, 'rule-guard: managed preset label')
 
 	ctx.effect(function* () {
 		const stopListener = ctx.on(

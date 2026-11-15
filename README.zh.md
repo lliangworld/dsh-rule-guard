@@ -38,12 +38,19 @@ DeepSeek Harness 的纯本地命令规则守卫。它监听 `tools/pre-execute`�
 
 在 composer 的权限选择器里选**守卫式全权限**，或执行 `/permission guarded-full`。
 
-托管刻意只做两件事：
+托管刻意只做三件事：
 
 - **只增删 `guarded-full` 这一项。** 该行 config 里的其他键——自带预设、`defaultPreset`——都原样带回，因为 patch 的 `config` 是*整块替换，绝不深合并*。
-- **不会删掉你改过的预设。** 如果你改过 `guarded-full` 的名字或内容，它就是你的；插件不再管这个名字。如果禁用插件时默认预设正指着它，默认会改回 `workspace-write`——权限服务不允许默认预设不在表里。
+- **槽位的键就是身份。** `guarded-full` 下面无论放什么，都是本插件的地盘：加、改名、删都归它管。想要自己的预设，就用**另一个键**，本插件从不碰。
+- **禁用插件时会再把它移除**，而且移得很干净：整个 `permission` 行会消失，因为剩下的内容与 bundle 层已提供的一致。你的有效配置没有任何变化，重新启用时两者都会回来。
 
-**禁用插件时移除预设是尽力而为。** loader 处于事务中时无法写入配置，而卸载本插件的那个事务始终不会关闭——所以移除通常落不了盘，预设会留下来。这是安全的方向：守卫在它之下继续有效，重新启用插件时也会发现它已在。想手工移除，从 profile patch 的 `permission` 行里删掉 `guarded-full` 即可。
+**预设名跟随语言。** 中文宿主下显示「守卫式全权限」，英文宿主下显示 *Guarded full access*，在设置里切换语言后立即更新，无需重装插件。权限客户端不会本地化配置的预设——只有三个内置键有翻译——所以这是由插件把对应语言的文案写进预设自己的 `name`。
+
+什么线索都没有时，用宿主自己的语言判断。因此浏览器语言与操作系统不一致时不会被采纳，预设名会落到英文。
+
+**两处选择器立即跟随。** 启用插件后，设置页的「选择新会话的默认权限模式」和输入框的权限选择器里立刻出现该预设，无需重启；禁用时两处同时消失。权限客户端会缓存目录，只监听 `permission-presets/catalog-changed`——而 `permissionPresets` 自己只在 `registerAuto` 时发这个信号，配置变更从不发——所以插件在每次写入落定后补发一次。除此之外没有任何东西需要重启。
+
+**卸载插件不会移除它。** bundle 是先禁用再删包的，所以移除在禁用阶段就已触发，随后那次写入会在 reconcile 中丢失。预设会留着，指向一个已经不在的插件。这没有危害——守卫随插件一起卸载了，预设只是静静待在那里；重新安装插件时也会发现它已在。想手工移除，从 profile patch 的 `permission` 行里删掉 `guarded-full` 即可。
 
 ### 自己维护预设
 
@@ -96,7 +103,7 @@ dsh plugin --profile desktop add github:lliangworld/dsh-rule-guard
 | 字段 | 默认值 | 含义 |
 | --- | --- | --- |
 | `global` | `false` | 关闭只守卫上文所述会话；开启则守卫所有会话 |
-| `managePreset` | `true` | 开启时本插件启用期间自动加入 `guarded-full` 预设；禁用时移除为尽力而为；关闭则由你自己维护预设表 |
+| `managePreset` | `true` | 开启时本插件启用期间自动加入 `guarded-full` 预设、禁用时自动移除；拨动此开关本身也会立即移除或加回该预设，无需重启；关闭则由你自己维护预设表 |
 | `tools` | `pwsh`、`bash`、`terminal`、`pwsh_persistent`、`bash_persistent`、`ops_bash` | 接管的工具名，每行一个 |
 | `dialect` | `auto` | `auto` 按工具名推断方言；或强制 `posix`、`cmd`、`powershell` |
 | `onUnsupported` | `allow` | 无法静态判定时 `allow` 或 `ask` |

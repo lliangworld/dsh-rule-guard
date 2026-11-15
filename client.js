@@ -56,7 +56,7 @@ window.__ModuleLoader__.load({
 				'Off (the default) guards only sessions whose effective permission is full sandbox plus ask — the guarded-full preset — so an existing preset behaves exactly as before. On guards every session regardless of preset, sandbox or approval policy.',
 			managePreset: 'Manage the guarded-full preset',
 			managePresetHint:
-				'On (the default) adds the guarded-full preset while this plugin is enabled, so there is nothing to edit by hand. Removing it again when the plugin is disabled is best-effort — the loader will not take a config write while it is unloading this plugin — so a preset left behind is normal; delete it from the profile patch by hand. Off leaves your preset table alone: maintain the preset yourself, as README.md describes.',
+				'On (the default) adds the guarded-full preset while this plugin is enabled, and removes it again when the plugin is disabled. Turning this switch off removes the preset too, and turning it back on adds it again — both take effect without restarting the harness. Uninstalling the plugin does not remove it — the guard is unloaded either way, so a leftover preset is inert. Off leaves your preset table alone: maintain the preset yourself, as README.md describes.',
 			rules: 'Built-in rules',
 			rulesHint:
 				'A switched-off rule no longer asks: a command that matches it is released. The audit still records that the rule matched.',
@@ -120,7 +120,7 @@ window.__ModuleLoader__.load({
 				'关闭（默认）时，只有有效权限为「全沙箱 + 询问」的会话——即守卫式全权限预设——才启用守卫，现有预设行为完全不变；开启后在任何预设、任何权限下都生效。',
 			managePreset: '托管守卫式全权限预设',
 			managePresetHint:
-				'开启（默认）时，本插件启用期间会自动加入「守卫式全权限」预设，无需手工编辑。禁用插件时移除它是尽力而为——loader 在卸载本插件期间不接受配置写入——所以预设留下来是正常现象，从 profile patch 里手工删掉即可。关闭则不动你的预设表：由你自己维护该预设，见 README.md。',
+				'开启（默认）时，本插件启用期间会自动加入「守卫式全权限」预设，禁用插件时再自动移除。关闭此开关同样会移除该预设，重新打开则会加回——两者都立即生效，无需重启 harness。卸载插件不会移除它——守卫两种情况下都会卸载，残留的预设只是空置。关闭则不动你的预设表：由你自己维护该预设，见 README.md。',
 			rules: '内置规则',
 			rulesHint: '关掉某条规则后，命中它不再询问、直接放行；审计仍会记录这条规则命中过。',
 			patterns: '自定义规则正则',
@@ -195,6 +195,25 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * Parse a boolean written as text: blank clears the override, anything
+		 * but `true`/`false` is invalid.
+		 *
+		 * A text field's default parse returns its input verbatim, so without
+		 * this a switch would stage the *string* 'false'. The Host rejects
+		 * that at validation, because the schema declares a boolean.
+		 *
+		 * @param {string} text - the field's raw text.
+		 * @returns {{ kind: 'clear' } | { kind: 'set', value: boolean } | undefined} the parsed edit.
+		 */
+		function booleanText(text) {
+			const value = text.trim()
+			if (value === '') return { kind: 'clear' }
+			if (value === 'true') return { kind: 'set', value: true }
+			if (value === 'false') return { kind: 'set', value: false }
+			return undefined
+		}
+
+		/**
 		 * Parse a one-per-line list: blank clears the override, every line is
 		 * trimmed and an empty line is dropped, so a trailing newline is not
 		 * an entry.
@@ -261,9 +280,17 @@ window.__ModuleLoader__.load({
 				// form as text fields only because `SettingsFormModel` needs a spec
 				// to stage them, and each switch reads its position from the scope
 				// snapshot instead.
-				{ ...primitives.settingsTextField('global') },
-				{ ...primitives.settingsTextField('managePreset') },
-				{ ...primitives.settingsTextField('audit') },
+				// The parse is what makes the save land. A text field's default
+				// parse hands the staged text through as a string, so
+				// `edit('managePreset', 'false')` would stage the *string* 'false'.
+				// The Host then refuses it twice over: `z.boolean()` rejects a
+				// string, and the config editor's own equality check compares the
+				// composed row against what was staged and finds 'false' !== false.
+				// `booleanText` turns the text back into a real boolean, which is
+				// the only shape the schema accepts.
+				{ ...primitives.settingsTextField('global'), parse: booleanText },
+				{ ...primitives.settingsTextField('managePreset'), parse: booleanText },
+				{ ...primitives.settingsTextField('audit'), parse: booleanText },
 			]
 		}
 		//#endregion

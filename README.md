@@ -54,23 +54,44 @@ By default this plugin adds `guarded-full` to your preset table while it is enab
 
 Pick **Guarded full access** in the composer's permission picker, or run `/permission guarded-full`.
 
-Two things the management does deliberately:
+Three things the management does deliberately:
 
 - **It only ever adds `guarded-full`.** Every other key in that row's
   config — the stock presets, `defaultPreset` — is restated unchanged, because a
   patch's `config` is *replaced wholesale, never deep-merged*.
-- **It will not touch a preset you have edited.** If you relabel or retune
-  `guarded-full`, it is yours; the plugin leaves it alone. If the default preset
-  happens to point at it when the plugin is disabled, the default moves to
-  `workspace-write`, because the permission service refuses to load with a default
-  that is not in the table.
+- **The slot's key is the identity.** Whatever sits under `guarded-full` is this
+  plugin's to add, relabel and remove. A preset you want for yourself gets
+  another key, which this plugin never touches.
+- **Disabling the plugin removes it again**, and removes it cleanly: the whole
+  `permission` row goes away, because what is left equals what the bundle layer
+  already provides. Nothing about your effective configuration changes. Re-enabling
+  puts both back.
 
-**Removing the preset when you disable the plugin is best-effort.** A preset
-cannot be written while the loader is mid-transaction, and the transaction that
-unloads this plugin never closes — so the removal usually cannot land, and the
-preset stays behind. That is the safe direction: the guard keeps working under
-it, and re-enabling the plugin finds it already there. To remove it by hand,
-delete the `guarded-full` entry from the `permission` row of your profile patch.
+**The label follows the language.** The preset appears as 「守卫式全权限」 under a
+Chinese host and as *Guarded full access* under an English one, and switching the
+language in Settings updates it without a reinstall. The permission client does
+not localize configured presets — only the three shipped keys are translated — so
+this is the plugin writing the language's label into the preset's own `name`.
+
+When nothing says which language to use, the host's own locale answers. A browser
+language that differs from the OS is therefore not picked up, and the label lands
+on English.
+
+**The two pickers follow immediately.** Enabling the plugin adds the preset to
+Settings' *default permission mode for new sessions* and to the composer's
+permission seat without a restart, and disabling it removes it from both. The
+permission client caches its catalog and listens for
+`permission-presets/catalog-changed` — which `permissionPresets` itself emits only
+from `registerAuto`, never for a configuration change — so the plugin announces
+that signal after each write it lands. Nothing else needs a restart.
+
+**Uninstalling the plugin does not remove it.** A bundle is disabled before its
+package is deleted, so the removal fires during the disable and the write that
+would follow is lost in the reconcile. The preset stays, naming a plugin that is
+gone. That is harmless — the guard is unloaded with the plugin, so the preset just
+sits there inert — and installing the plugin again finds it already in place. To
+remove it by hand, delete the `guarded-full` entry from the `permission` row of
+your profile patch.
 
 ### Managing the preset yourself
 
@@ -135,7 +156,7 @@ edited on that row:
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `global` | `false` | Off guards only the sessions described above; on guards every session |
-| `managePreset` | `true` | On adds the guarded-full preset while this plugin is enabled; removing it on disable is best-effort; off leaves the preset table to you |
+| `managePreset` | `true` | On adds the guarded-full preset while this plugin is enabled and removes it again when the plugin is disabled; turning the switch itself off removes the preset and turning it back on adds it again, both without a restart; off leaves the preset table to you |
 | `tools` | `pwsh`, `bash`, `terminal`, `pwsh_persistent`, `bash_persistent`, `ops_bash` | Tool names this guard takes over, one per line |
 | `dialect` | `auto` | `auto` infers the dialect from the tool name; or force `posix`, `cmd`, `powershell` |
 | `onUnsupported` | `allow` | `allow` or `ask` when no static verdict is possible |
