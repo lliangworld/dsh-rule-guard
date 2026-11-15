@@ -54,6 +54,9 @@ window.__ModuleLoader__.load({
 			global: 'Guard every session',
 			globalHint:
 				'Off (the default) guards only sessions whose effective permission is full sandbox plus ask — the guarded-full preset — so an existing preset behaves exactly as before. On guards every session regardless of preset, sandbox or approval policy.',
+			managePreset: 'Manage the guarded-full preset',
+			managePresetHint:
+				'On (the default) adds the guarded-full preset while this plugin is enabled and removes it when the plugin is disabled, so there is nothing to edit by hand. Off leaves your preset table alone: maintain the preset yourself in the profile patch, as README.md describes.',
 			rules: 'Built-in rules',
 			rulesHint:
 				'A switched-off rule no longer asks: a command that matches it is released. The audit still records that the rule matched.',
@@ -115,6 +118,9 @@ window.__ModuleLoader__.load({
 			global: '全局生效',
 			globalHint:
 				'关闭（默认）时，只有有效权限为「全沙箱 + 询问」的会话——即守卫式全权限预设——才启用守卫，现有预设行为完全不变；开启后在任何预设、任何权限下都生效。',
+			managePreset: '托管守卫式全权限预设',
+			managePresetHint:
+				'开启（默认）时，本插件启用期间会自动加入「守卫式全权限」预设，禁用插件时自动移除，无需手工编辑。关闭则不动你的预设表：由你自己在 profile patch 里维护该预设，见 README.md。',
 			rules: '内置规则',
 			rulesHint: '关掉某条规则后，命中它不再询问、直接放行；审计仍会记录这条规则命中过。',
 			patterns: '自定义规则正则',
@@ -251,11 +257,12 @@ window.__ModuleLoader__.load({
 					format: (value) => (Array.isArray(value) ? value.join('\n') : ''),
 					parse: lineList,
 				},
-				// `global` and `audit` are booleans: they ride the form as text
-				// fields only because `SettingsFormModel` needs a spec to stage
-				// them, and each switch reads its position from the scope
+				// `global`, `managePreset` and `audit` are booleans: they ride the
+				// form as text fields only because `SettingsFormModel` needs a spec
+				// to stage them, and each switch reads its position from the scope
 				// snapshot instead.
 				{ ...primitives.settingsTextField('global') },
+				{ ...primitives.settingsTextField('managePreset') },
 				{ ...primitives.settingsTextField('audit') },
 			]
 		}
@@ -341,6 +348,7 @@ window.__ModuleLoader__.load({
 		 */
 		const FIELDS = [
 			'global',
+			'managePreset',
 			'tools',
 			'dialect',
 			'onUnsupported',
@@ -444,11 +452,12 @@ window.__ModuleLoader__.load({
 				const state = {
 					...this.form.shell(),
 					defaults: scopeBase(this.scope),
-					// `globalOn` and `auditOn` rather than the field names: the
-					// loop below fills `state[field]` for every Config field, and a
-					// boolean cannot share a key with the form's
+					// `globalOn`, `manageOn` and `auditOn` rather than the field
+					// names: the loop below fills `state[field]` for every Config
+					// field, and a boolean cannot share a key with the form's
 					// `{text, overridden, invalid}` object for the same field.
 					globalOn: this.switchPosition('global', false),
+					manageOn: this.switchPosition('managePreset', true),
 					auditOn: this.switchPosition('audit', true),
 					rulesOpen: this.rulesOpen,
 					patternsOpen: this.patternsOpen,
@@ -526,6 +535,7 @@ window.__ModuleLoader__.load({
 					hooks: { ruleGuardCard: this.store },
 					...this.form.actions(),
 					setGlobal: (checked) => this.setSwitch('global', checked, false),
+					setManagePreset: (checked) => this.setSwitch('managePreset', checked, true),
 					setAudit: (checked) => this.setSwitch('audit', checked, true),
 					toggleRule: (ruleId, wasEnabled) => this.toggleRule(ruleId, wasEnabled),
 					toggleRules: () => this.toggleRules(),
@@ -853,6 +863,12 @@ window.__ModuleLoader__.load({
 						position: 'globalOn',
 						hint: 'globalHint',
 						set: 'setGlobal',
+					}, disabled),
+					switchField(props, t, state, {
+						name: 'managePreset',
+						position: 'manageOn',
+						hint: 'managePresetHint',
+						set: 'setManagePreset',
 					}, disabled),
 					listField(props, t, state, { name: 'tools', invalid: 'invalidList', rows: 4 }, disabled),
 					enumField(props, t, state, {

@@ -35,12 +35,21 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { analyzeCommand, dialectForTool } from './lib/analyze.js'
 import { AuditLog, expandPath } from './lib/audit.js'
 import { auditReason, displayReason } from './lib/catalog.js'
+import { installPreset, removePreset } from './lib/preset.js'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'rule-guard'
 
-/** The seams this plugin needs: the approval service, the sandbox policy, and the tools service. */
-export const inject = ['approval', 'sandboxPolicy', 'tools']
+/**
+ * The seams this plugin needs.
+ *
+ * `configEditor` is how the plugin owns its permission preset: the preset table
+ * is configuration, not a runtime registry, and the editor is the one path that
+ * writes the profile's own patch and reloads the affected row. It is absent in
+ * profiles that carry no config editor, where the plugin simply does not manage
+ * a preset.
+ */
+export const inject = ['approval', 'configEditor', 'sandboxPolicy', 'tools']
 
 /** Structured error identity for a `denyPatterns` denial. */
 const DENIED_ERROR_NAME = 'RuleGuardDeniedError'
@@ -60,6 +69,11 @@ export const Config = z.object({
 		.default(false)
 		.volatile()
 		.description('Whether the guard applies everywhere. Off (the default) limits it to sessions whose effective permission is full sandbox plus ask — the guarded-full preset — so an existing preset behaves exactly as before. On guards every session regardless of preset, sandbox or approval policy.'),
+	managePreset: z
+		.boolean()
+		.default(true)
+		.volatile()
+		.description('Whether enabling this plugin adds the guarded-full permission preset, and disabling it removes it again. Off leaves the preset table alone: you maintain the preset yourself in the profile patch, as documented in README.md.'),
 	tools: z
 		.array(z.string())
 		.default(DEFAULT_TOOLS)
@@ -215,6 +229,44 @@ export function apply(ctx, config) {
 		if (config.audit.get() === false) return
 		audit.write({ ts: new Date().toISOString(), ...entry })
 	}
+
+	// The preset this plugin needs exists only where the effective permission
+	// asks the user, and it cannot be registered at runtime — the permission
+	// service reads its table from configuration. So while this plugin is
+	// enabled it owns a `guarded-full` preset through the config editor, the
+	// same path the Plugins page uses, and gives it back when unloaded.
+	//
+	// The install is started but not awaited: `edit` reconciles the loader, and
+	// blocking `apply` on that would delay every other plugin's startup for a
+	// write whose only failure mode is a preset that stays absent. The removal
+	// is awaited, because an unload that returns before the write lands can
+	// leave a preset pointing at a plugin that is gone.
+	ctx.effect(function* () {
+		if (config.managePreset.get() === false) {
+			yield () => {}
+			return
+		}
+		installPreset(ctx)
+			.then((outcome) => {
+				if (outcome === 'skipped') {
+					ctx.logger?.warn?.(
+						'rule-guard: no permission preset row to manage; add guarded-full to the profile patch yourself, see README.md',
+					)
+				}
+			})
+			.catch((error) => {
+				ctx.logger?.warn?.(`rule-guard: could not add the guarded-full preset: ${String(error)}`)
+			})
+		yield async () => {
+			try {
+				await removePreset(ctx)
+			} catch (error) {
+				// The preset stays behind, which is the safe direction: the guard
+				// keeps working under it, and the user can remove it by hand.
+				ctx.logger?.warn?.(`rule-guard: could not remove the guarded-full preset: ${String(error)}`)
+			}
+		}
+	}, 'rule-guard: managed preset')
 
 	ctx.effect(function* () {
 		const stopListener = ctx.on(

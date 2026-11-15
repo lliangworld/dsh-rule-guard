@@ -30,9 +30,22 @@ DeepSeek Harness 的纯本地命令规则守卫。它监听 `tools/pre-execute`�
 
 除非会话的有效权限会询问用户，否则守卫完全 inert。审批策略为 `never` 的预设会确定性地拒绝 `ask`——模型被告知命中了哪条规则，命令不会执行——所以那种预设下守卫只可能产生一个没有提示的拒绝。沙箱更窄的预设本身已经收紧了调用边界。
 
-因此守卫只在两个有效旋钮读作**全沙箱 + `ask`** 时激活，这正是下面 `guarded-full` 预设所设的值。按有效旋钮判定而不是按预设名，意味着预设表里没有这个名字时守卫依然有效——包括手工拨出来的组合，权限服务会把它报成 `custom`。
+因此守卫只在两个有效旋钮读作**全沙箱 + `ask`** 时激活，这正是 `guarded-full` 预设所设的值。按有效旋钮判定而不是按预设名，意味着预设表里没有这个名字时守卫依然有效——包括手工拨出来的组合，权限服务会把它报成 `custom`。
 
-在自己的 profile `cordis.patch.yml` 里加这个预设：
+### 预设由插件托管
+
+默认情况下，本插件启用期间会自动往预设表里加入 `guarded-full`，禁用插件时自动移除，无需手工编辑。写入落在你自己 profile 的 `cordis.patch.yml`——也就是你本来会手工改的那个文件，走的是**插件**页写任何其他设置的同一条路径——因此始终可见、可 review，禁用后也会原样还原。
+
+在 composer 的权限选择器里选**守卫式全权限**，或执行 `/permission guarded-full`。
+
+托管刻意只做两件事：
+
+- **只增删 `guarded-full` 这一项。** 该行 config 里的其他键——自带预设、`defaultPreset`——都原样带回，因为 patch 的 `config` 是*整块替换，绝不深合并*。
+- **不会删掉你改过的预设。** 如果你改过 `guarded-full` 的名字或内容，它就是你的；插件不再管这个名字。如果禁用插件时默认预设正指着它，默认会改回 `workspace-write`——权限服务不允许默认预设不在表里。
+
+### 自己维护预设
+
+在本插件的配置行把**托管守卫式全权限预设**关掉即可退出托管。然后在自己的 profile `cordis.patch.yml` 里加：
 
 ```yaml
 - id: permission
@@ -56,12 +69,9 @@ DeepSeek Harness 的纯本地命令规则守卫。它监听 `tools/pre-execute`�
     defaultPreset: workspace-write
 ```
 
-然后在 composer 的权限选择器里选**守卫式全权限**，或执行 `/permission guarded-full`。
+这段配置不能放在本 bundle 的 patch 里。组合说明写得很明确：patch 的 `config` 是*整块替换，绝不深合并*。你的 profile 已经用自己的预设表 patch 了 `permission` 行，而 profile 层在 bundle 层之后应用——所以加在那里的预设会被静默丢掉。本 bundle 的 patch 故意不 patch 这一行：只写 `guarded-full` 会把自己没 patch 该行的 profile 里的 `workspace-write` 和 `danger-full-access` 两个预设抹掉。
 
-关于这段配置有两点要说：
-
-- **它必须放在 profile 的 patch 里，而不是本 bundle 的。** 组合说明写得很明确：patch 的 `config` 是*整块替换，绝不深合并*。你的 profile 已经用自己的预设表 patch 了 `permission` 行，而 profile 层在 bundle 层之后应用——所以加在这里的预设会被静默丢掉。本 bundle 的 patch 故意不 patch 这一行：只写 `guarded-full` 会把自己没 patch 该行的 profile 里的 `workspace-write` 和 `danger-full-access` 两个预设抹掉。
-- **改预设只影响新会话，不影响正在运行的会话。**
+改预设只影响新会话，不影响正在运行的会话。
 
 要无视预设、沙箱和审批策略守卫所有会话，把**全局生效**开关打开即可。这是唯一能解除上述条件的手段；预设是这件事的另一半。
 
@@ -84,6 +94,7 @@ dsh plugin --profile desktop add github:lliangworld/dsh-rule-guard
 | 字段 | 默认值 | 含义 |
 | --- | --- | --- |
 | `global` | `false` | 关闭只守卫上文所述会话；开启则守卫所有会话 |
+| `managePreset` | `true` | 开启时本插件启用期间自动加入 `guarded-full` 预设、禁用时移除；关闭则由你自己维护预设表 |
 | `tools` | `pwsh`、`bash`、`terminal`、`pwsh_persistent`、`bash_persistent`、`ops_bash` | 接管的工具名，每行一个 |
 | `dialect` | `auto` | `auto` 按工具名推断方言；或强制 `posix`、`cmd`、`powershell` |
 | `onUnsupported` | `allow` | 无法静态判定时 `allow` 或 `ask` |

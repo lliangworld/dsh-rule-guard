@@ -43,12 +43,37 @@ produce a denial with no prompt. A preset with a narrower sandbox already confin
 the call.
 
 So the guard activates where the two effective knobs read **full sandbox plus `ask`**,
-which is exactly what the `guarded-full` preset below sets. Matching the effective
-knobs rather than a preset's name means the guard still works when the preset table
-does not name it — including a hand-tuned combination, which the permission service
+which is exactly what the `guarded-full` preset sets. Matching the effective knobs
+rather than a preset's name means the guard still works when the preset table does
+not name it — including a hand-tuned combination, which the permission service
 reports as `custom`.
 
-Add the preset to your profile's own `cordis.patch.yml`:
+### The preset is managed for you
+
+By default this plugin adds `guarded-full` to your preset table while it is enabled
+and removes it when the plugin is disabled, so there is nothing to edit by hand. The
+write goes to your profile's own `cordis.patch.yml` — the same file you would edit
+yourself, through the same path the **Plugins** page uses for any other setting — so
+it stays visible and reviewable, and a disable puts it back the way it was.
+
+Pick **Guarded full access** in the composer's permission picker, or run
+`/permission guarded-full`.
+
+Two things the management does deliberately:
+
+- **It only ever adds or removes `guarded-full`.** Every other key in that row's
+  config — the stock presets, `defaultPreset` — is restated unchanged, because a
+  patch's `config` is *replaced wholesale, never deep-merged*.
+- **It will not delete a preset you have edited.** If you relabel or retune
+  `guarded-full`, it is yours; the plugin leaves it alone and stops managing that
+  name. If the default preset happens to point at it when the plugin is disabled,
+  the default moves to `workspace-write`, because the permission service refuses to
+  load with a default that is not in the table.
+
+### Managing the preset yourself
+
+Set **Manage the guarded-full preset** to off on the plugin's row to opt out. Then
+add the preset to your profile's own `cordis.patch.yml` yourself:
 
 ```yaml
 - id: permission
@@ -72,20 +97,15 @@ Add the preset to your profile's own `cordis.patch.yml`:
     defaultPreset: workspace-write
 ```
 
-Then pick **Guarded full access** in the composer's permission picker, or run
-`/permission guarded-full`.
+This cannot live in the bundle's own patch. The composition reference is explicit:
+a patch's `config` is *replaced wholesale, never deep-merged*. Your profile already
+patches the `permission` row with its own preset table, and a profile layer is
+applied after bundle layers — so a preset added there would be silently dropped.
+Leaving the row out of this bundle's patch is deliberate: writing only
+`guarded-full` there would erase the stock `workspace-write` and `danger-full-access`
+presets in a profile that does not patch the row itself.
 
-Two things to know about that snippet:
-
-- **It must live in the profile's patch, not this bundle's.** The composition
-  reference is explicit: a patch's `config` is *replaced wholesale, never
-  deep-merged*. Your profile already patches the `permission` row with its own
-  preset table, and a profile layer is applied after bundle layers — so a preset
-  added here would be silently dropped. Leaving the row out of this bundle's patch
-  is deliberate: writing only `guarded-full` there would erase the stock
-  `workspace-write` and `danger-full-access` presets in a profile that does not
-  patch the row itself.
-- **A preset change applies to new sessions, not a running one.**
+A preset change applies to new sessions, not to a running one.
 
 To guard every session regardless of preset, sandbox or approval policy, set
 **Guard every session** to on. That is the only setting that lifts the condition;
@@ -113,6 +133,7 @@ edited on that row:
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `global` | `false` | Off guards only the sessions described above; on guards every session |
+| `managePreset` | `true` | On adds the guarded-full preset while this plugin is enabled and removes it on disable; off leaves the preset table to you |
 | `tools` | `pwsh`, `bash`, `terminal`, `pwsh_persistent`, `bash_persistent`, `ops_bash` | Tool names this guard takes over, one per line |
 | `dialect` | `auto` | `auto` infers the dialect from the tool name; or force `posix`, `cmd`, `powershell` |
 | `onUnsupported` | `allow` | `allow` or `ask` when no static verdict is possible |

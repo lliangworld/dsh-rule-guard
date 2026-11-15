@@ -60,9 +60,10 @@ const schemaFields = schema().order
 /** The field list `client.js` declares for the card. */
 const cardFields = [...client.matchAll(/^\t\t\t'([A-Za-z]+)',?$/gm)].map((match) => match[1])
 
-test('the Host schema declares twelve fields', () => {
+test('the Host schema declares thirteen fields', () => {
 	assert.deepEqual(schemaFields, [
 		'global',
+		'managePreset',
 		'tools',
 		'dialect',
 		'onUnsupported',
@@ -90,14 +91,17 @@ test('every schema field carries the default the card assumes', () => {
 	assert.equal(fields.audit.default, true)
 	assert.equal(fields.auditPath.default, '')
 	assert.deepEqual(fields.disabledRules.default, [])
-	// The top-level switch defaults to off, which is what keeps an existing
-	// preset behaving exactly as it did before this field existed.
+	// The top-level switches default to off and on respectively: `global` keeps
+	// an existing preset behaving exactly as it did, while `managePreset` is on
+	// because the preset is otherwise a manual profile edit.
 	assert.equal(fields.global.default, false)
+	assert.equal(fields.managePreset.default, true)
 	// A volatile field is what lets a saved value reach the next command
 	// without restarting the plugin; the card's promise depends on it.
 	assert.equal(fields.dialect.type, 'union')
 	assert.equal(fields.audit.type, 'boolean')
 	assert.equal(fields.global.type, 'boolean')
+	assert.equal(fields.managePreset.type, 'boolean')
 	assert.equal(fields.disabledRules.type, 'array')
 })
 
@@ -145,16 +149,17 @@ test('the two halves agree on the row identity', () => {
 
 test('the card stages every field through the form model', () => {
 	// Each editable field needs a spec, or `form.field(name)` throws.
+	const booleans = ['global', 'managePreset', 'audit']
 	for (const field of schemaFields) {
-		if (field === 'global' || field === 'audit') continue
+		if (booleans.includes(field)) continue
 		assert.ok(
 			client.includes(`settingsTextField('${field}')`) || client.includes(`settingsNumberField('${field}')`),
 			`client.js declares no field spec for "${field}"`,
 		)
 	}
-	// Both booleans ride the form as text fields so they can be staged at all,
+	// The booleans ride the form as text fields so they can be staged at all,
 	// and each switch reads its position from the scope snapshot.
-	for (const field of ['global', 'audit']) {
+	for (const field of booleans) {
 		assert.ok(client.includes(`primitives.settingsTextField('${field}')`), `no spec for "${field}"`)
 	}
 	assert.match(client, /scopeValue\(this\.scope, field\)/)
@@ -174,14 +179,21 @@ test('the projection keys for the switches are not Config field names', () => {
 	const start = client.indexOf('projection() {')
 	const projection = client.slice(start, client.indexOf('\r\n\t\t\t}\r\n', start))
 	const keys = [...projection.matchAll(/^\t{5}(\w+): /gm)].map((match) => match[1])
-	assert.deepEqual(keys, ['defaults', 'globalOn', 'auditOn', 'rulesOpen', 'patternsOpen'])
+	assert.deepEqual(keys, [
+		'defaults',
+		'globalOn',
+		'manageOn',
+		'auditOn',
+		'rulesOpen',
+		'patternsOpen',
+	])
 	for (const key of keys) {
 		assert.ok(!schemaFields.includes(key), `projection key "${key}" collides with a Config field`)
 	}
 	// Each switch must read its own boolean key, not the field's object.
 	assert.match(client, /checked: state\[field\.position\]/)
 	assert.ok(
-		!/checked: state\.(global|audit)\b/.test(client),
+		!/checked: state\.(global|managePreset|audit)\b/.test(client),
 		'a switch reads the field object, not the boolean',
 	)
 	assert.ok(!/checked: state\.field\.name\b/.test(client))
@@ -553,6 +565,21 @@ test('the README carries the detail content the detail page no longer does', () 
 	// Both languages must document the new switch.
 	assert.match(english, /Guard every session/)
 	assert.match(chinese, /全局生效/)
+})
+
+test('the README documents the managed preset in both languages', () => {
+	// The preset is the one thing a reader must understand before enabling the
+	// plugin, and the management switch is the thing that makes it automatic.
+	// Both halves have to say so, or one language's reader edits by hand.
+	const english = read('README.md')
+	const chinese = read('README.zh.md')
+	assert.match(english, /guarded-full/)
+	assert.match(english, /Manage the guarded-full preset|managePreset/)
+	assert.match(chinese, /guarded-full/)
+	assert.match(chinese, /托管守卫式全权限预设|managePreset/)
+	// And the opt-out path has to stay documented, since it is the escape hatch.
+	assert.match(english, /Managing the preset yourself/)
+	assert.match(chinese, /自己维护预设/)
 })
 
 test('the README no longer points at the old detail pages', () => {

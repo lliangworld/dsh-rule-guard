@@ -19,10 +19,11 @@ function fakeContext() {
 	return {
 		listeners,
 		effect(generator) {
-			// Run the generator to obtain the disposer, as Cordis would.
+			// Run the generator to obtain the disposer, as Cordis would. The
+			// preset effect's first yield is a no-op and its second is the
+			// cleanup, so running to the second yield also exercises that path.
 			const iterator = generator.call({})
-			const first = iterator.next()
-			void first
+			iterator.next()
 			return () => iterator.return?.(new Error('disposed'))
 		},
 		on(event, listener) {
@@ -30,6 +31,9 @@ function fakeContext() {
 			return () => {}
 		},
 		logger: { warn: () => {} },
+		// No preset to manage: `findPresetEntry` returns undefined and every
+		// path degrades to a logged skip.
+		configEditor: { entries: () => [], configuration: () => [] },
 	}
 }
 
@@ -65,6 +69,7 @@ function nextSpy() {
 function config(overrides = {}) {
 	return {
 		global: ref(false),
+		managePreset: ref(false),
 		tools: ref(['pwsh', 'bash']),
 		dialect: ref('auto'),
 		onUnsupported: ref('allow'),
