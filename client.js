@@ -84,7 +84,7 @@ window.__ModuleLoader__.load({
 				'Append every ask, deny, and unjudgeable verdict to a JSONL log. A plain allow is the common case and is not recorded.',
 			auditPath: 'Audit log path',
 			auditPathHint:
-				'Where the log is written. Leave blank for $DSH_HOME/rule-guard-audit.jsonl; $DSH_HOME and ${DSH_HOME} are expanded.',
+				'Where the log is written. Leave blank for $DSH_HOME/rule-guard/rule-guard-audit.jsonl; $DSH_HOME and ${DSH_HOME} are expanded.',
 			maxCommandLength: 'Command length cap',
 			maxCommandLengthHint:
 				'Longest command text analyzed, in characters. A longer command has no static verdict and follows the policy above.',
@@ -143,7 +143,7 @@ window.__ModuleLoader__.load({
 			audit: '记录判定',
 			auditHint: '把每次询问、拒绝和无法判定的结果追加写入 JSONL 日志。普通放行是绝大多数，不记录。',
 			auditPath: '审计日志路径',
-			auditPathHint: '日志写入位置。留空使用 $DSH_HOME/rule-guard-audit.jsonl；会展开 $DSH_HOME 与 ${DSH_HOME}。',
+			auditPathHint: '日志写入位置。留空使用 $DSH_HOME/rule-guard/rule-guard-audit.jsonl；会展开 $DSH_HOME 与 ${DSH_HOME}。',
 			maxCommandLength: '命令长度上限',
 			maxCommandLengthHint: '参与分析的命令文本最大字符数。超过该长度即无静态结论，按上述策略处理。',
 			patterns: '规则正则',

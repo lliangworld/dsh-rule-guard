@@ -2,11 +2,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import path, { sep } from 'node:path'
+import path, { sep, dirname } from 'node:path'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { apply } from '../index.js'
 import { displayReason, auditReason, ruleText } from '../lib/catalog.js'
-import { expandPath } from '../lib/audit.js'
+import { expandPath, AuditLog } from '../lib/audit.js'
 
 /** A minimal stand-in for one config field reference. */
 function ref(value) {
@@ -400,14 +400,14 @@ test('the approval headline leaves the command to the panel', () => {
 
 test('audit path expansion honors DSH_HOME', () => {
 	const home = (configured, env = { DSH_HOME: 'C:/dsh-home' }) => resolveDshHome(configured, env)
-	const expected = `${sep}dsh-home${sep}rule-guard-audit.jsonl`
+	const expected = `${sep}dsh-home${sep}rule-guard${sep}rule-guard-audit.jsonl`
 	assert.match(expandPath('', home), new RegExp(`^C:${expected.replace(/\\/g, '\\\\')}$`))
 	assert.equal(expandPath('$DSH_HOME/log.jsonl', home).replace(/\\/g, '/'), 'C:/dsh-home/log.jsonl')
 	assert.equal(expandPath('${DSH_HOME}/log.jsonl', home).replace(/\\/g, '/'), 'C:/dsh-home/log.jsonl')
 	assert.equal(expandPath('C:/tmp/log.jsonl', home).replace(/\\/g, '/'), 'C:/tmp/log.jsonl')
 	// A blank override never resolves the home to the working directory.
 	const blank = (configured, env = { DSH_HOME: '  ' }) => resolveDshHome(configured, env)
-	assert.match(expandPath('', blank), /[\\/]\.dsh[\\/]rule-guard-audit\.jsonl$/)
+	assert.match(expandPath('', blank), /[\\/]\.dsh[\\/]rule-guard[\\/]rule-guard-audit\.jsonl$/)
 })
 
 test('a non-string audit path falls back instead of throwing', () => {
@@ -419,8 +419,36 @@ test('a non-string audit path falls back instead of throwing', () => {
 		assert.doesNotThrow(() => expandPath(bad, home), `expandPath threw for ${JSON.stringify(bad)}`)
 		assert.match(
 			expandPath(bad, home).replace(/\\/g, '/'),
-			/^C:\/dsh-home\/rule-guard-audit\.jsonl$/,
+			/^C:\/dsh-home\/rule-guard\/rule-guard-audit\.jsonl$/,
 			`a non-string audit path did not fall back: ${JSON.stringify(bad)}`,
 		)
+	}
+})
+
+test('the default audit file lives in its own directory', () => {
+	// A plugin adding a log to the harness home must not put it beside the
+	// home's own contents: the next plugin to add one would have to step over
+	// it, and a file that records whole command texts is not something to leave
+	// lying at the top level. `dsh-market` keeps its data the same way.
+	const home = (configured, env = { DSH_HOME: 'C:/dsh-home' }) => resolveDshHome(configured, env)
+	const resolved = expandPath('', home).replace(/\\/g, '/')
+	assert.equal(dirname(resolved), 'C:/dsh-home/rule-guard')
+	assert.notEqual(dirname(resolved), 'C:/dsh-home')
+	// The name still says what it is, so the directory is not the only clue.
+	assert.equal(path.basename(resolved), 'rule-guard-audit.jsonl')
+})
+
+test('the audit directory is created for the nested default path', () => {
+	// Every other test here writes into a directory it made itself, so the
+	// nested default path was never actually exercised: `dirname` of it does
+	// not exist yet. This is the case that has to build two levels.
+	const root = mkdtempSync(path.join(tmpdir(), 'rule-guard-dir-'))
+	try {
+		const nested = path.join(root, 'rule-guard', 'rule-guard-audit.jsonl')
+		assert.equal(existsSync(path.dirname(nested)), false)
+		new AuditLog({ path: nested }).ensureDirectory()
+		assert.equal(existsSync(path.dirname(nested)), true)
+	} finally {
+		rmSync(root, { recursive: true, force: true })
 	}
 })

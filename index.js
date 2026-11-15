@@ -127,7 +127,7 @@ export const Config = z.object({
 		.string()
 		.default('')
 		.volatile()
-		.description('Audit file. Empty uses $DSH_HOME/rule-guard-audit.jsonl; $DSH_HOME and ${DSH_HOME} are expanded.'),
+		.description('Audit file. Empty uses $DSH_HOME/rule-guard/rule-guard-audit.jsonl; $DSH_HOME and ${DSH_HOME} are expanded.'),
 	disabledRules: z
 		.array(z.string())
 		.default([])

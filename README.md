@@ -163,7 +163,7 @@ edited on that row:
 | `onError` | `allow` | `allow` or `ask` when the rule engine throws |
 | `maxCommandLength` | `10000` | Longest command text analyzed, from 1000 to 100000 |
 | `audit` | `true` | Record every non-allow decision |
-| `auditPath` | `''` | Empty uses `$DSH_HOME/rule-guard-audit.jsonl` |
+| `auditPath` | `''` | Empty uses `$DSH_HOME/rule-guard/rule-guard-audit.jsonl` |
 | `disabledRules` | `[]` | Built-in rule ids switched off: a match is released without asking |
 | `allowPatterns` | `[]` | Regular expressions that release a call without asking |
 | `askPatterns` | `[]` | Regular expressions that ask, even without a built-in hit |

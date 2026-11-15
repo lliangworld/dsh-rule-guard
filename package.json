@@ -1,7 +1,7 @@
 {
   "name": "@lliangworld/dsh-rule-guard",
   "description": "Pure-local shell command rule guard for the DeepSeek Harness tools/pre-execute seam: safe calls pass, dangerous ones ask the user with no timeout.",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "type": "module",
   "engines": {

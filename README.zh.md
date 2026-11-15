@@ -110,7 +110,7 @@ dsh plugin --profile desktop add github:lliangworld/dsh-rule-guard
 | `onError` | `allow` | 规则引擎抛错时 `allow` 或 `ask` |
 | `maxCommandLength` | `10000` | 参与判定的最长命令文本，取值 1000–100000 |
 | `audit` | `true` | 记录每条非放行判定 |
-| `auditPath` | `''` | 为空时用 `$DSH_HOME/rule-guard-audit.jsonl` |
+| `auditPath` | `''` | 为空时用 `$DSH_HOME/rule-guard/rule-guard-audit.jsonl` |
 | `disabledRules` | `[]` | 关闭的内置规则 id；命中即放行、不再询问 |
 | `allowPatterns` | `[]` | 命中即放行的正则 |
 | `askPatterns` | `[]` | 命中即询问的正则（内置规则未命中时也生效） |
